@@ -57,7 +57,6 @@ class Alignment(nn.Module):
         # down_seg1 = self.downsample(down_seg1_big)
         seg_target1 = torch.argmax(down_seg1, dim=1).long()  
         
-
         ggg = torch.where(seg_target1 == 0, torch.zeros_like(seg_target1), torch.ones_like(seg_target1))
 
         hair_mask1 = torch.where(seg_target1 == 10, torch.ones_like(seg_target1), torch.zeros_like(seg_target1))
@@ -70,12 +69,6 @@ class Alignment(nn.Module):
         down_seg2 = get_segmentation(im2, im2_bounds_box)
         #down_seg2 = self.downsample(down_seg2_big)
         seg_target2 = torch.argmax(down_seg2, dim=1).long()
-        
-        """
-        im2 = self.preprocess_img(img_path2)
-        down_seg2, _, _ = self.seg(im2)
-        seg_target2 = torch.argmax(down_seg2, dim=1).long()
-        """
         
         ggg = torch.where(seg_target2 == 10, torch.ones_like(seg_target2), ggg)
 
@@ -100,6 +93,7 @@ class Alignment(nn.Module):
         # new_target_final = new_target
         target_mask = new_target_final.unsqueeze(0).long().cuda()
 
+        """
 
         ############################# add auto-inpainting
 
@@ -170,6 +164,8 @@ class Alignment(nn.Module):
         # target_mask = torch.where((free_mask == 1) * (gen_seg_target!=0), gen_seg_target, previouse_target_mask)
         target_mask = torch.where((OB_region.to(device).unsqueeze(0)) * (gen_seg_target != 0), gen_seg_target, previouse_target_mask)
 
+        """
+
         #####################  Save Visualization of Target Segmentation Mask
 
         masks_dir = os.path.join(self.opts.output_dir, "masks")
@@ -181,9 +177,8 @@ class Alignment(nn.Module):
 
         hair_mask_target = torch.where(target_mask == 10, torch.ones_like(target_mask), torch.zeros_like(target_mask))
         hair_mask_target = hair_mask_target.float().unsqueeze(0)
-        #hair_mask_target = F.interpolate(hair_mask_target.float().unsqueeze(0), size=(512, 512), mode='nearest')
+        # hair_mask_target = F.interpolate(hair_mask_target.float().unsqueeze(0), size=(512, 512), mode='nearest')
 
-        print(target_mask.shape, hair_mask_target.shape, hair_mask1.shape, hair_mask2.shape)
         
         return target_mask, hair_mask_target, hair_mask1, hair_mask2
 

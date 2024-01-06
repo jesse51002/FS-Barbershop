@@ -70,9 +70,6 @@ def main(args):
 
 
 
-
-
-
 if __name__ == "__main__":
 
     parser = argparse.ArgumentParser(description='Barbershop')
