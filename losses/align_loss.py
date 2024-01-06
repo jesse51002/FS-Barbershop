@@ -25,6 +25,8 @@ class AlignLossBuilder(torch.nn.Module):
         self.cross_entropy_only_background = torch.nn.CrossEntropyLoss(weight=tmp)
 
 
+        self.cosine_loss = torch.nn.CosineSimilarity(dim=0, eps=1e-6)
+
 
     def cross_entropy_loss(self, down_seg, target_mask):
         loss = self.opt.ce_lambda * self.cross_entropy(down_seg, target_mask)
@@ -43,3 +45,13 @@ class AlignLossBuilder(torch.nn.Module):
     def cross_entropy_loss_only_background(self, down_seg, target_mask):
         loss = self.opt.ce_lambda * self.cross_entropy_only_background(down_seg, target_mask)
         return loss
+
+    def cosine_similarity_loss(self, hair_perc, target_perc):
+        non_zero_indexs = torch.flatten(target_perc != 0)
+
+        flat_hair_perc = torch.flatten(hair_perc)[non_zero_indexs]
+        flat_target_perc = torch.flatten(target_perc)[non_zero_indexs]
+        
+        loss = self.opt.hair_perc_lambda * self.cosine_loss(flat_hair_perc, flat_target_perc)
+        return loss / flat_hair_perc.shape[0]
+        

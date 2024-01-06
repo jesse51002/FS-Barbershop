@@ -21,6 +21,7 @@ from utils.data_utils import cuda_unsqueeze
 from utils.image_utils import dilate_erosion_mask_tensor
 from farl_segmentation.seg_export import output_bb, get_segmentation
 import time
+import matplotlib.pyplot as plt
 
 toPIL = torchvision.transforms.ToPILImage()
 
@@ -90,9 +91,17 @@ class Alignment(nn.Module):
         new_target_inpainted = (
                     cv2.inpaint(tmp.clone().numpy(), inpainting_region, 3, cv2.INPAINT_NS).astype(np.uint8) * 10)
         new_target_final = torch.where(OB_region, torch.from_numpy(new_target_inpainted), new_target)
-        # new_target_final = new_target
         target_mask = new_target_final.unsqueeze(0).long().cuda()
 
+        # This is for a loss that also takes into account the percentage of the area being hair
+        # This will help with hair that fades in and out of the background (prolly)
+        # it keeps the hair percentages and keeps everything else as binary
+        target_hair_percentages = torch.zeros((1, *target_mask.shape[-2:])).long().cuda()
+        target_hair_percentages[0] = torch.where(target_mask[0] == 10, down_seg2[0,10], torch.zeros_like(down_seg2[0,10]))
+
+        # Visualize the hair
+        # plt.imshow(target_mask_hair_percentages[0, 10].clone().cpu().numpy())
+        # plt.savefig("./test.png")
         """
 
         ############################# add auto-inpainting
@@ -180,7 +189,7 @@ class Alignment(nn.Module):
         # hair_mask_target = F.interpolate(hair_mask_target.float().unsqueeze(0), size=(512, 512), mode='nearest')
 
         
-        return target_mask, hair_mask_target, hair_mask1, hair_mask2
+        return target_mask, target_hair_percentages, hair_mask_target, hair_mask1, hair_mask2
 
 
     def preprocess_img(self, img_path):
@@ -231,7 +240,7 @@ class Alignment(nn.Module):
 
         device = self.opts.device
         output_dir = self.opts.output_dir
-        target_mask, hair_mask_target, hair_mask1, hair_mask2 = \
+        target_mask, target_hair_percentages, hair_mask_target, hair_mask1, hair_mask2 = \
             self.create_target_segmentation_mask(img_path1=img_path1, img_path2=img_path2, sign=sign,
                                                  save_intermediate=save_intermediate)
         
@@ -258,8 +267,13 @@ class Alignment(nn.Module):
             loss_dict = {}
             ##### Cross Entropy Loss
             ce_loss = self.loss_builder.cross_entropy_loss(down_seg, target_mask)
+            hair_perc_loss = self.loss_builder.cosine_similarity_loss(down_seg[:,10], target_hair_percentages)
+            #ce_loss = self.loss_builder.cross_entropy_loss(down_seg, target_mask_hair_percentages)
             loss_dict["ce_loss"] = ce_loss.item()
-            loss = ce_loss
+            loss_dict["hp_loss"] = hair_perc_loss.item()
+            loss = ce_loss + hair_perc_loss
+
+            
 
             # best_summary = f'BEST ({j+1}) | ' + ' | '.join(
             #     [f'{x}: {y:.4f}' for x, y in loss_dict.items()])
@@ -301,8 +315,10 @@ class Alignment(nn.Module):
 
             ########## Segmentation Loss
             ce_loss = self.loss_builder.cross_entropy_loss(down_seg, target_mask)
+            hair_perc_loss = self.loss_builder.cosine_similarity_loss(down_seg[:,10], target_hair_percentages)
             loss_dict["ce_loss"] = ce_loss.item()
-            loss = ce_loss
+            loss_dict["hp_loss"] = hair_perc_loss.item()
+            loss = ce_loss + hair_perc_loss
 
             #### Style Loss
             H1_region = self.downsample_256(I_Structure_Style_changed) * HM_Structure
@@ -311,6 +327,14 @@ class Alignment(nn.Module):
 
             loss_dict["style_loss"] = style_loss.item()
             loss += style_loss
+
+            """
+            print(
+                "CE:", ce_loss, 
+                "\nHP:", hair_perc_loss,
+                "\nS:", style_loss,
+            )
+            """
 
             # best_summary = f'BEST ({j+1}) | ' + ' | '.join(
             #     [f'{x}: {y:.4f}' for x, y in loss_dict.items()])

@@ -5,7 +5,11 @@ import scipy
 import scipy.ndimage
 import dlib
 from pathlib import Path
-
+from huggingface_hub import hf_hub_download
+from ultralytics import YOLO
+from supervision import Detections
+import cv2
+import torch
 
 """
 brief: face alignment with FFHQ method (https://github.com/NVlabs/ffhq-dataset)
@@ -22,18 +26,43 @@ requirements:
     # download face landmark model from:
     # http://dlib.net/files/shape_predictor_68_face_landmarks.dat.bz2
 """
+# download model
+model_path = hf_hub_download(repo_id="arnabdhar/YOLOv8-Face-Detection", filename="model.pt")
+# load model
+model = YOLO(model_path, task="detect")
+
+
+# inference
+def output_bb(img, confidence = 0.5): 
+    output = model(img, verbose=False)[0]
+
+    cleaned_boxes = []
+    for box in output.boxes.data:
+        if box[4] > confidence:
+            cleaned_boxes.append([
+                int(box[0]), # x1
+                int(box[1]), # y1
+                int(box[2]), # x2
+                int(box[3]), # y2
+            ])
+    
+    return np.array(cleaned_boxes)
 
 def get_landmark(filepath,predictor):
     """get landmark with dlib
     :return: np.array shape=(68, 2)
     """
-    detector = dlib.get_frontal_face_detector()
-
+    img = cv2.imread(filepath)
+    bb = output_bb(img)
+    rects = []
+    for i in range(bb.shape[0]):
+        rects.append(dlib.rectangle(bb[i,0], bb[i,1], bb[i,2], bb[i,3]))
+        
     img = dlib.load_rgb_image(filepath)
-    dets = detector(img, 1)
     filepath = Path(filepath)
-    print(f"{filepath.name}: Number of faces detected: {len(dets)}")
-    shapes = [predictor(img, d) for k, d in enumerate(dets)]
+    print(f"{filepath.name}: Number of faces detected: {bb.shape[0]}")
+    
+    shapes = [predictor(img, d) for d in rects]
 
     lms = [np.array([[tt.x, tt.y] for tt in shape.parts()]) for shape in shapes]
 

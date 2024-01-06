@@ -19,7 +19,7 @@ parser.add_argument('-cache_dir', type=str, default='cache', help='cache directo
 parser.add_argument('-inter_method', type=str, default='bicubic')
 
 
-accepted_format = ["jpeg", "jpg", "pmg"]
+accepted_format = ["jpeg", "jpg", "png"]
 
 args = parser.parse_args()
 

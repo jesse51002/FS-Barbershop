@@ -118,7 +118,8 @@ if __name__ == "__main__":
 
     # Alignment loss options
     parser.add_argument('--ce_lambda', type=float, default=1.0, help='cross entropy loss multiplier factor')
-    parser.add_argument('--style_lambda', type=str, default=4e4, help='style loss multiplier factor')
+    parser.add_argument('--style_lambda', type=float, default=40000, help='style loss multiplier factor')
+    parser.add_argument('--hair_perc_lambda', type=float, default=100.0, help='hair segmenation percentage similarty multiplier factor')
     parser.add_argument('--align_steps1', type=int, default=140, help='')
     parser.add_argument('--align_steps2', type=int, default=100, help='')
 

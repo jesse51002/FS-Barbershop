@@ -57,9 +57,10 @@ def output_bb(img, confidence = MIN_CONFIDENCE):
                 int(box[3]), # y2
             ])
     
+    
     return np.array(cleaned_boxes)
 
-def get_segmentation(img, bbox):
+def get_segmentation(img, bbox):    
     masks = face_parser.predict_img(img, bbox, rgb=True)
     return masks
 
