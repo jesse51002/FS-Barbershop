@@ -5,6 +5,7 @@ import torchvision
 from utils.drive import open_url
 from utils.shape_predictor import align_face
 import PIL
+import os
 
 parser = argparse.ArgumentParser(description='Align_face')
 
@@ -14,6 +15,7 @@ parser.add_argument('-output_dir', type=str, default='input/face', help='output 
 parser.add_argument('-output_size', type=int, default=1024, help='size to downscale the input images to, must be power of 2')
 parser.add_argument('-seed', type=int, help='manual seed to use')
 parser.add_argument('-cache_dir', type=str, default='cache', help='cache directory for model weights')
+parser.add_argument('--overwrite', action='store_true', default=False, help='Whether to overwrite')
 
 ###############
 parser.add_argument('-inter_method', type=str, default='bicubic')
@@ -34,8 +36,15 @@ f=open_url("https://drive.google.com/uc?id=1huhv8PYpNNKbGCLOaYUjOgR1pY5pmbJx", c
 print(f)
 predictor = dlib.shape_predictor(f)
 
+already_exists = [x.split(".")[0] for x in os.listdir(args.output_dir)]
+
 for im in Path(args.unprocessed_dir).glob("*.*"):
-    if str(im).split(".")[-1] not in accepted_format:
+    str_path = str(im)
+    base_name_split = os.path.basename(str_path).split(".")
+    if base_name_split[-1] not in accepted_format:
+        continue
+    if not args.overwrite and base_name_split[0] in already_exists:
+        print(f"Skipping {base_name_split[0]}, already exists")
         continue
     
     faces = align_face(str(im),predictor)

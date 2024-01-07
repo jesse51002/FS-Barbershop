@@ -126,7 +126,7 @@ def align_face(filepath,predictor):
         # read image
         img = PIL.Image.open(filepath)
         cleared_img = np.array(img)
-        cleared_img[total_mask != 1, :] = np.array([255,255,255])
+        cleared_img[total_mask != 1, :] = np.array([120,120,120])
         img = PIL.Image.fromarray(cleared_img)
         
         output_size = 1024
