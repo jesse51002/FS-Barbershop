@@ -1,4 +1,5 @@
 echo "Cuda is incorrectly installed on aws ec2 (usr/local/cuda/bin folder doesnt exist). Reinstall using the link below to fix ninja issues"
+echo "This issue also affects pip install inplace_abn"
 echo "https://medium.com/@yulin_li/how-to-update-cuda-and-cudnn-on-ubuntu-18-04-4bfb762cf0b8"
 echo "This only has to be done the first time torch is being installed into the conda env"
 # sudo apt-get --purge remove "*cuda*" "*cublas*" "*cufft*" "*cufile*" "*curand*" "*cusolver*" "*cusparse*" "*gds-tools*" "*npp*" "*nvjpeg*" "nsight*"

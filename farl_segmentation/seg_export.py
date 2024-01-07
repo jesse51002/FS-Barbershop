@@ -45,8 +45,7 @@ model = YOLO(model_path, task="detect")
 # inference
 def output_bb(img, confidence = MIN_CONFIDENCE): 
     output = model(img, verbose=False)[0]
-
-        
+    
     cleaned_boxes = []
     for box in output.boxes.data:
         if box[4] > confidence:

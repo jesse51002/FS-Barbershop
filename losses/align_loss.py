@@ -52,6 +52,6 @@ class AlignLossBuilder(torch.nn.Module):
         flat_hair_perc = torch.flatten(hair_perc)[non_zero_indexs]
         flat_target_perc = torch.flatten(target_perc)[non_zero_indexs]
         
-        loss = self.opt.hair_perc_lambda * self.cosine_loss(flat_hair_perc, flat_target_perc)
+        loss = 1 -  self.opt.hair_perc_lambda * self.cosine_loss(flat_hair_perc, flat_target_perc)
         return loss / flat_hair_perc.shape[0]
         

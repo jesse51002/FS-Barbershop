@@ -97,7 +97,7 @@ class Alignment(nn.Module):
         # This will help with hair that fades in and out of the background (prolly)
         # it keeps the hair percentages and keeps everything else as binary
         target_hair_percentages = torch.zeros((1, *target_mask.shape[-2:])).long().cuda()
-        target_hair_percentages[0] = torch.where(target_mask[0] == 10, down_seg2[0,10], torch.zeros_like(down_seg2[0,10]))
+        target_hair_percentages[0] = down_seg2[0,10]
 
         # Visualize the hair
         # plt.imshow(target_mask_hair_percentages[0, 10].clone().cpu().numpy())

@@ -11,6 +11,9 @@ from supervision import Detections
 import cv2
 import torch
 
+from farl_segmentation.seg_export import output_bb, get_segmentation as face_seg
+from human_parse.human_parse import get_segmentation as human_seg
+
 """
 brief: face alignment with FFHQ method (https://github.com/NVlabs/ffhq-dataset)
 author: lzhbrian (https://lzhbrian.me)
@@ -54,10 +57,23 @@ def get_landmark(filepath,predictor):
     """
     img = cv2.imread(filepath)
     bb = output_bb(img)
+
     rects = []
     for i in range(bb.shape[0]):
         rects.append(dlib.rectangle(bb[i,0], bb[i,1], bb[i,2], bb[i,3]))
-        
+
+    face = face_seg(img, bb).argmax(1)[0].cpu().numpy()
+
+    lowest_face_idx = np.where((face != 0) & (face != 10))
+
+    lower_amount = face.shape[0] * 0.15
+    max_idx = max(0, np.max(lowest_face_idx[0]) - lower_amount)
+    
+    human = human_seg(img).argmax(1)[0].cpu().numpy()
+    human[:int(max_idx)] = 0
+
+    total_mask = np.where((face != 0) | (human != 0), np.ones(img.shape[:2]), np.zeros(img.shape[:2]))
+    
     img = dlib.load_rgb_image(filepath)
     filepath = Path(filepath)
     print(f"{filepath.name}: Number of faces detected: {bb.shape[0]}")
@@ -66,7 +82,7 @@ def get_landmark(filepath,predictor):
 
     lms = [np.array([[tt.x, tt.y] for tt in shape.parts()]) for shape in shapes]
 
-    return lms
+    return lms, total_mask
 
 
 def align_face(filepath,predictor):
@@ -75,7 +91,7 @@ def align_face(filepath,predictor):
     :return: list of PIL Images
     """
 
-    lms = get_landmark(filepath,predictor)
+    lms, total_mask = get_landmark(filepath,predictor)
     imgs = []
     for lm in lms:
         lm_chin = lm[0: 17]  # left-right
@@ -109,7 +125,10 @@ def align_face(filepath,predictor):
 
         # read image
         img = PIL.Image.open(filepath)
-
+        cleared_img = np.array(img)
+        cleared_img[total_mask != 1, :] = np.array([255,255,255])
+        img = PIL.Image.fromarray(cleared_img)
+        
         output_size = 1024
         # output_size = 256
         transform_size = 4096
@@ -157,6 +176,6 @@ def align_face(filepath,predictor):
         if output_size < transform_size:
             img = img.resize((output_size, output_size), PIL.Image.ANTIALIAS)
 
-        # Save aligned image.
+        # Save aligned image.        
         imgs.append(img)
     return imgs
