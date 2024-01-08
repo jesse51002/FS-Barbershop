@@ -3,7 +3,9 @@ sys.path.insert(0,'./')
 sys.path.insert(0,'./human_matting')
 
 import os
+import time
 import cv2
+import matplotlib.pyplot as plt
 import numpy as np
 from PIL import Image
 import torch
@@ -45,7 +47,7 @@ def remove_background(img, target_color=155):
         img = pil_to_tensor(np.array(img)).unsqueeze(0).float().cuda()
     elif isinstance(img, torch.Tensor):
         h, w = img.shape[-2:]
-        img = img.flip(dims=[-3]).cuda()
+        img = img.flip(dims=[-3])
     else:
         raise TypeError
     
@@ -63,8 +65,8 @@ def remove_background(img, target_color=155):
     # print(img.shape, (h,w), (rh,rw))
 
     input_tensor = F.interpolate(img, size=(rh, rw), mode='bilinear')
-    with torch.no_grad():
-        pred = model(input_tensor)
+    # with torch.no_grad():
+    pred = model(input_tensor)
     
     # progressive refine alpha
     alpha_pred_os1, alpha_pred_os4, alpha_pred_os8 = pred['alpha_os1'], pred['alpha_os4'], pred['alpha_os8']
@@ -78,17 +80,19 @@ def remove_background(img, target_color=155):
     pred_alpha = F.interpolate(pred_alpha, size=(h, w), mode='bilinear')
     alpha_np = pred_alpha.data
 
-    # output segment
-    pred_segment = pred['segment']
-    pred_segment = F.interpolate(pred_segment, size=(h, w), mode='bilinear')
-    segment_np = pred_segment.data
+    
 
     backremoved = torch.multiply(img.flip(dims=[-3]), alpha_np).flip(dims=[-3]) * 255  
     base = torch.ones_like(img) * target_color / 255
     distance = img - base
     new_img = (base + distance * alpha_np) * 255
+
+    # output segment
+    pred_segment = pred['segment']
+    pred_segment = F.interpolate(pred_segment, size=(h, w), mode='bilinear')
+    # segment_np = pred_segment.data
     
-    return new_img
+    return new_img, pred_segment
 
 
 if __name__ == "__main__":
@@ -106,7 +110,15 @@ if __name__ == "__main__":
         unscaled_img = unscaled_img.unsqueeze(0).float().to("cuda:0")
         img = unscaled_img / 255
         print("Img shape:",img.shape)
-        output_img = remove_background(img).detach().cpu().numpy()[0]
+
+        start = time.time()
+        output_img, pred_segment = remove_background(img)
+        output_img = output_img.detach().cpu().numpy()[0]
+        print("Took:", time.time() - start)
         print("output:", output_img.shape)
         cv2.imwrite(f"./output/background_removed/{img_name}", output_img.transpose(1,2,0))
+        plt.imshow(pred_segment.detach().cpu().numpy()[0,0])
+        plt.savefig(f"./output/background_removed/segment_{img_name}")
+        
+        
 

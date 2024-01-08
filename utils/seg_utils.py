@@ -18,7 +18,7 @@ def vis_seg(pred):
                       [204, 102, 255],  ## 10
                       [0, 153, 255],  ## 11
                       [0, 255, 153],  ## 12
-                      [0, 51, 0],
+                      [0, 51, 0],  # 13
                       [102, 153, 255],  ## 14
                       [255, 153, 102],  ## 15
                       [255, 255, 0],  ## 16
@@ -48,6 +48,13 @@ def save_vis_mask(img_path1, img_path2, sign, output_dir, mask):
 def save_original_mask(img_path, output_dir, mask):
     im_name = os.path.splitext(os.path.basename(img_path))[0]
     vis_path = os.path.join(output_dir, 'org_mask_{}.png'.format(im_name))
+    vis_mask = vis_seg(mask)
+    PIL.Image.fromarray(vis_mask).save(vis_path)
+
+def save_human_mask(img_path1, img_path2, sign, output_dir, mask):
+    im_name_1 = os.path.splitext(os.path.basename(img_path1))[0]
+    im_name_2 = os.path.splitext(os.path.basename(img_path2))[0]
+    vis_path = os.path.join(output_dir, 'vis_mask_human_{}_{}_{}.png'.format(im_name_1, im_name_2, sign))
     vis_mask = vis_seg(mask)
     PIL.Image.fromarray(vis_mask).save(vis_path)
 

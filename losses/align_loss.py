@@ -18,7 +18,8 @@ class AlignLossBuilder(torch.nn.Module):
         self.style = StyleLoss(distance="l2", VGG16_ACTIVATIONS_LIST=[3, 8, 15, 22], normalize=False).to(opt.device)
         self.style.eval()
 
-
+        self.binary_ce = torch.nn.BCEWithLogitsLoss()
+        
         tmp = torch.zeros(num_classes).to(opt.device)
         tmp[0] = 1
         self.cross_entropy_wo_background = torch.nn.CrossEntropyLoss(weight=1 - tmp)
@@ -32,6 +33,9 @@ class AlignLossBuilder(torch.nn.Module):
         loss = self.opt.ce_lambda * self.cross_entropy(down_seg, target_mask)
         return loss
 
+    def binary_ce_loss(self, down_seg, target_mask):
+        loss = self.opt.ce_lambda * self.binary_ce(down_seg, target_mask)
+        return loss
 
     def style_loss(self, im1, im2, mask1, mask2):
         loss = self.opt.style_lambda * self.style(im1 * mask1, im2 * mask2, mask1=mask1, mask2=mask2)

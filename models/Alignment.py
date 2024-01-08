@@ -15,11 +15,12 @@ from losses.align_loss import AlignLossBuilder
 import torch.nn.functional as F
 import cv2
 from utils.data_utils import load_FS_latent
-from utils.seg_utils import save_vis_mask, save_original_mask
+from utils.seg_utils import save_vis_mask, save_original_mask, save_human_mask
 from utils.model_utils import download_weight
 from utils.data_utils import cuda_unsqueeze
 from utils.image_utils import dilate_erosion_mask_tensor
 from farl_segmentation.seg_export import output_bb, get_segmentation
+from human_matting.inference import remove_background
 import time
 import matplotlib.pyplot as plt
 
@@ -55,8 +56,9 @@ class Alignment(nn.Module):
         im1 = self.preprocess_img(img_path1)
         self.im1_bounds_box = output_bb(im1)
         down_seg1 = get_segmentation(im1, self.im1_bounds_box)
-        # down_seg1 = self.downsample(down_seg1_big)
-        seg_target1 = torch.argmax(down_seg1, dim=1).long()  
+        seg_target1 = torch.argmax(down_seg1, dim=1).long() 
+
+        human_seg1 = remove_background(im1)[1][:, 0]
         
         ggg = torch.where(seg_target1 == 0, torch.zeros_like(seg_target1), torch.ones_like(seg_target1))
 
@@ -93,6 +95,7 @@ class Alignment(nn.Module):
         new_target_final = torch.where(OB_region, torch.from_numpy(new_target_inpainted), new_target)
         target_mask = new_target_final.unsqueeze(0).long().cuda()
 
+        
         # This is for a loss that also takes into account the percentage of the area being hair
         # This will help with hair that fades in and out of the background (prolly)
         # it keeps the hair percentages and keeps everything else as binary
@@ -102,94 +105,20 @@ class Alignment(nn.Module):
         # Visualize the hair
         # plt.imshow(target_mask_hair_percentages[0, 10].clone().cpu().numpy())
         # plt.savefig("./test.png")
-        """
 
-        ############################# add auto-inpainting
+        hair_mask_target = torch.where(target_mask == 10, torch.ones_like(target_mask), torch.zeros_like(target_mask))
+        hair_mask_target = hair_mask_target.float().unsqueeze(0)
 
-
-        optimizer_align, latent_align = self.setup_align_optimizer()
-        latent_end = latent_align[:, 6:, :].clone().detach()
-
-        pbar = tqdm(range(80), desc='Create Target Mask Step1', leave=False)
-        for step in pbar:
-            optimizer_align.zero_grad()
-            latent_in = torch.cat([latent_align[:, :6, :], latent_end], dim=1)
-            down_seg, _ = self.create_down_seg(latent_in)
-            
-            loss_dict = {}
-
-            if sign == 'realistic':
-                
-                ce_loss = self.loss_builder.cross_entropy_loss_wo_background(down_seg, target_mask)
-                ce_loss += self.loss_builder.cross_entropy_loss_only_background(down_seg, ggg)
-            else:
-                ce_loss = self.loss_builder.cross_entropy_loss(down_seg, target_mask)
-
-
-            loss_dict["ce_loss"] = ce_loss.item()
-            loss = ce_loss
-
-
-            loss.backward()
-            optimizer_align.step()
-
-
-        gen_seg_target = torch.argmax(down_seg, dim=1).long()
-        free_mask = hair_mask1 * (1 - hair_mask2)
-        target_mask = torch.where(free_mask==1, gen_seg_target, target_mask)
-        previouse_target_mask = target_mask.clone().detach()
-
-        ############################################
-
-        target_mask = torch.where(OB_region.to(device).unsqueeze(0), torch.zeros_like(target_mask), target_mask)
-        optimizer_align, latent_align = self.setup_align_optimizer()
-        latent_end = latent_align[:, 6:, :].clone().detach()
-
-
-        
-        pbar = tqdm(range(80), desc='Create Target Mask Step2', leave=False)
-        for step in pbar:
-            optimizer_align.zero_grad()
-            latent_in = torch.cat([latent_align[:, :6, :], latent_end], dim=1)
-            down_seg, _ = self.create_down_seg(latent_in)
-
-            loss_dict = {}
-
-            if sign == 'realistic':
-                ce_loss = self.loss_builder.cross_entropy_loss_wo_background(down_seg, target_mask)
-                ce_loss += self.loss_builder.cross_entropy_loss_only_background(down_seg, ggg)
-            else:
-                ce_loss = self.loss_builder.cross_entropy_loss(down_seg, target_mask)
-
-            loss_dict["ce_loss"] = ce_loss.item()
-            loss = ce_loss
-
-            loss.backward()
-            optimizer_align.step()
-
-
-        gen_seg_target = torch.argmax(down_seg, dim=1).long()
-        # free_mask = hair_mask1 * (1 - hair_mask2)
-        # target_mask = torch.where((free_mask == 1) * (gen_seg_target!=0), gen_seg_target, previouse_target_mask)
-        target_mask = torch.where((OB_region.to(device).unsqueeze(0)) * (gen_seg_target != 0), gen_seg_target, previouse_target_mask)
-
-        """
-
+        human_mask_target = self.hairchange_human_mask(target_mask, human_seg1, down_seg1)
         #####################  Save Visualization of Target Segmentation Mask
-
         masks_dir = os.path.join(self.opts.output_dir, "masks")
         if save_intermediate:
             save_vis_mask(img_path1, img_path2, sign, masks_dir, target_mask.squeeze().cpu())
             save_original_mask(img_path1, masks_dir, seg_target1)
             save_original_mask(img_path2, masks_dir, seg_target2)
-            
+            save_human_mask(img_path1, img_path2, sign, masks_dir, human_mask_target.squeeze().cpu())
 
-        hair_mask_target = torch.where(target_mask == 10, torch.ones_like(target_mask), torch.zeros_like(target_mask))
-        hair_mask_target = hair_mask_target.float().unsqueeze(0)
-        # hair_mask_target = F.interpolate(hair_mask_target.float().unsqueeze(0), size=(512, 512), mode='nearest')
-
-        
-        return target_mask, target_hair_percentages, hair_mask_target, hair_mask1, hair_mask2
+        return target_mask, human_mask_target, target_hair_percentages, hair_mask_target, hair_mask1, hair_mask2
 
 
     def preprocess_img(self, img_path):
@@ -197,6 +126,29 @@ class Alignment(nn.Module):
         unscaled_img = unscaled_img.unsqueeze(0).float().to("cuda:0")
         img = unscaled_img / 255
         return img
+
+    def hairchange_human_mask(self, target_mask, human_seg1, down_seg1):
+        human_mask = torch.zeros_like(target_mask[0])
+
+        # Sets everythign in the the target mask to true
+        human_mask[target_mask[0] != 0] = 1
+
+        # Only keeps the body mask below the nose
+        # The face segmentation model will handle the face area
+        nose_idx =  torch.where(target_mask[0] == 6)
+        max_nose = nose_idx[0].max()
+        
+        human_mask_og = torch.where(human_seg1[0] > 0.9, torch.ones_like(human_seg1[0]), torch.zeros_like(human_seg1[0]))
+        human_mask_og[:max_nose] = 0
+        human_mask[human_mask_og == 1] = 1
+
+        # Removes places that used to be hair in mask1
+        human_mask[(down_seg1[0,10] > 0.1) & (target_mask[0] == 0)] = 0
+
+        return human_mask.unsqueeze(0).float()
+        
+        
+        
 
     def setup_align_optimizer(self, latent_path=None):
         if latent_path:
@@ -216,14 +168,19 @@ class Alignment(nn.Module):
 
 
 
-    def create_down_seg(self, latent_in):
+    def create_down_seg(self, latent_in, face_mode=True):
         gen_im, _ = self.net.generator([latent_in], input_is_latent=True, return_latents=False,
                                        start_layer=0, end_layer=8)
         gen_im_0_1 = (gen_im + 1) / 2
 
+        down_seg = None
         # get hair mask of synthesized image
-        down_seg = get_segmentation(gen_im_0_1, self.im1_bounds_box)
+        if face_mode:
+            down_seg = get_segmentation(gen_im_0_1, self.im1_bounds_box)
+        else:
+            _, down_seg = remove_background(gen_im_0_1)
         #down_seg = self.downsample(gen_im_0_1)[0]
+    
         return down_seg, gen_im
 
 
@@ -240,7 +197,7 @@ class Alignment(nn.Module):
 
         device = self.opts.device
         output_dir = self.opts.output_dir
-        target_mask, target_hair_percentages, hair_mask_target, hair_mask1, hair_mask2 = \
+        target_mask, human_mask_target, target_hair_percentages, hair_mask_target, hair_mask1, hair_mask2 = \
             self.create_target_segmentation_mask(img_path1=img_path1, img_path2=img_path2, sign=sign,
                                                  save_intermediate=save_intermediate)
         
@@ -257,24 +214,30 @@ class Alignment(nn.Module):
         latent_W_path_2 = os.path.join(output_dir, 'W+', f'{im_name_2}.npy')
 
         optimizer_align, latent_align_1 = self.setup_align_optimizer(latent_W_path_1)
-
+        
         pbar = tqdm(range(self.opts.align_steps1), desc='Align Step 1', leave=False)
         for step in pbar:
+            face_loss = step % self.opts.body_alternate_number != 0 
+            
             optimizer_align.zero_grad()
             latent_in = torch.cat([latent_align_1[:, :6, :], latent_1[:, 6:, :]], dim=1)
-            down_seg, _ = self.create_down_seg(latent_in)
+            down_seg, _ = self.create_down_seg(latent_in, face_mode=face_loss)
 
             loss_dict = {}
+            loss = 0
             ##### Cross Entropy Loss
-            ce_loss = self.loss_builder.cross_entropy_loss(down_seg, target_mask)
-            hair_perc_loss = self.loss_builder.cosine_similarity_loss(down_seg[:,10], target_hair_percentages)
-            #ce_loss = self.loss_builder.cross_entropy_loss(down_seg, target_mask_hair_percentages)
-            loss_dict["ce_loss"] = ce_loss.item()
-            loss_dict["hp_loss"] = hair_perc_loss.item()
-            loss = ce_loss + hair_perc_loss
-
-            
-
+            if face_loss:
+                ce_loss = self.loss_builder.cross_entropy_loss(down_seg, target_mask)
+                hair_perc_loss = self.loss_builder.cosine_similarity_loss(down_seg[:,10], target_hair_percentages)
+                #ce_loss = self.loss_builder.cross_entropy_loss(down_seg, target_mask_hair_percentages)
+                loss_dict["ce_loss"] = ce_loss.item()
+                loss_dict["hp_loss"] = hair_perc_loss.item()
+                loss = ce_loss + hair_perc_loss
+            else:
+                ce_loss = self.loss_builder.binary_ce_loss(down_seg[0], human_mask_target)
+                loss_dict["ce_loss"] = ce_loss.item()
+                loss = ce_loss
+        
             # best_summary = f'BEST ({j+1}) | ' + ' | '.join(
             #     [f'{x}: {y:.4f}' for x, y in loss_dict.items()])
 
@@ -286,7 +249,7 @@ class Alignment(nn.Module):
         intermediate_align, _ = self.net.generator([latent_in], input_is_latent=True, return_latents=False,
                                                    start_layer=0, end_layer=3)
         intermediate_align = intermediate_align.clone().detach()
-
+        
         ##############################################
 
         optimizer_align, latent_align_2 = self.setup_align_optimizer(latent_W_path_2)
@@ -302,9 +265,11 @@ class Alignment(nn.Module):
 
         pbar = tqdm(range(self.opts.align_steps2), desc='Align Step 2', leave=False)
         for step in pbar:
+            face_loss = step % self.opts.body_alternate_number != 0 
+            
             optimizer_align.zero_grad()
             latent_in = torch.cat([latent_align_2[:, :6, :], latent_2[:, 6:, :]], dim=1)
-            down_seg, gen_im = self.create_down_seg(latent_in)
+            down_seg, gen_im = self.create_down_seg(latent_in, face_mode=face_loss)
 
             Current_Mask = torch.argmax(down_seg, dim=1).long()
             HM_G_512 = torch.where(Current_Mask == 10, torch.ones_like(Current_Mask),
@@ -312,13 +277,19 @@ class Alignment(nn.Module):
             HM_G = F.interpolate(HM_G_512, size=(256, 256), mode='nearest')
 
             loss_dict = {}
-
+            loss = 0
             ########## Segmentation Loss
-            ce_loss = self.loss_builder.cross_entropy_loss(down_seg, target_mask)
-            hair_perc_loss = self.loss_builder.cosine_similarity_loss(down_seg[:,10], target_hair_percentages)
-            loss_dict["ce_loss"] = ce_loss.item()
-            loss_dict["hp_loss"] = hair_perc_loss.item()
-            loss = ce_loss + hair_perc_loss
+            if face_loss:
+                ce_loss = self.loss_builder.cross_entropy_loss(down_seg, target_mask)
+                hair_perc_loss = self.loss_builder.cosine_similarity_loss(down_seg[:,10], target_hair_percentages)
+                #ce_loss = self.loss_builder.cross_entropy_loss(down_seg, target_mask_hair_percentages)
+                loss_dict["ce_loss"] = ce_loss.item()
+                loss_dict["hp_loss"] = hair_perc_loss.item()
+                loss = ce_loss + hair_perc_loss
+            else:
+                ce_loss = self.loss_builder.binary_ce_loss(down_seg[0], human_mask_target)
+                loss_dict["ce_loss"] = ce_loss.item()
+                loss = ce_loss
 
             #### Style Loss
             H1_region = self.downsample_256(I_Structure_Style_changed) * HM_Structure
