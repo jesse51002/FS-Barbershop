@@ -43,6 +43,7 @@ class SegmentationModel(nn.Module):
         else:
             self.encoder = Backbone(encoder)
             in_channels = self.encoder.num_channels
+        
         self.decoder = DECODER_MAP[decoder.lower()](
             in_channels=in_channels, num_classes=num_classes)
         self.low_level = getattr(self.decoder, 'low_level', False)

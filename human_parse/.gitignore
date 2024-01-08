@@ -1,8 +1,0 @@
-**/__pycache__
-
-data/
-log/
-pretrain_model/
-
-
-exp-schp-201908270938-pascal-person-part.pth

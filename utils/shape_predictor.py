@@ -11,8 +11,9 @@ from supervision import Detections
 import cv2
 import torch
 
-from farl_segmentation.seg_export import output_bb, get_segmentation as face_seg
-from human_parse.human_parse import get_segmentation as human_seg
+from human_matting.inference import remove_background
+
+
 
 """
 brief: face alignment with FFHQ method (https://github.com/NVlabs/ffhq-dataset)
@@ -61,18 +62,6 @@ def get_landmark(filepath,predictor):
     rects = []
     for i in range(bb.shape[0]):
         rects.append(dlib.rectangle(bb[i,0], bb[i,1], bb[i,2], bb[i,3]))
-
-    face = face_seg(img, bb).argmax(1)[0].cpu().numpy()
-
-    lowest_face_idx = np.where((face != 0) & (face != 10))
-
-    lower_amount = face.shape[0] * 0.15
-    max_idx = max(0, np.max(lowest_face_idx[0]) - lower_amount)
-    
-    human = human_seg(img).argmax(1)[0].cpu().numpy()
-    human[:int(max_idx)] = 0
-
-    total_mask = np.where((face != 0) | (human != 0), np.ones(img.shape[:2]), np.zeros(img.shape[:2]))
     
     img = dlib.load_rgb_image(filepath)
     filepath = Path(filepath)
@@ -82,7 +71,7 @@ def get_landmark(filepath,predictor):
 
     lms = [np.array([[tt.x, tt.y] for tt in shape.parts()]) for shape in shapes]
 
-    return lms, total_mask
+    return lms
 
 
 def align_face(filepath,predictor):
@@ -91,7 +80,7 @@ def align_face(filepath,predictor):
     :return: list of PIL Images
     """
 
-    lms, total_mask = get_landmark(filepath,predictor)
+    lms = get_landmark(filepath,predictor)
     imgs = []
     for lm in lms:
         lm_chin = lm[0: 17]  # left-right
@@ -125,8 +114,7 @@ def align_face(filepath,predictor):
 
         # read image
         img = PIL.Image.open(filepath)
-        cleared_img = np.array(img)
-        cleared_img[total_mask != 1, :] = np.array([120,120,120])
+        cleared_img = remove_background(img).cpu().numpy()[0].transpose(1,2,0).astype(np.uint8)
         img = PIL.Image.fromarray(cleared_img)
         
         output_size = 1024
