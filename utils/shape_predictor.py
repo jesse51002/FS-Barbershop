@@ -114,7 +114,7 @@ def align_face(filepath,predictor):
 
         # read image
         img = PIL.Image.open(filepath)
-        cleared_img = remove_background(img).cpu().numpy()[0].transpose(1,2,0).astype(np.uint8)
+        cleared_img = remove_background(img)[0].cpu().numpy()[0].transpose(1,2,0).astype(np.uint8)
         img = PIL.Image.fromarray(cleared_img)
         
         output_size = 1024
