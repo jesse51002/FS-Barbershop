@@ -102,17 +102,16 @@ class FaceParser(object):
         h,w = None, None
         
         if isinstance(img, str):
-            img = cv2.imread(img)
-            h, w = img.shape[:2]
+            img = torch.tensor(cv2.imread(img)[:,:,::-1].copy()).permute((2,0,1))
+            img = img.unsqueeze(0).float().to("cuda:0") / 255
         elif isinstance(img, np.ndarray):
-            if rgb:
-                img = img[:, :, ::-1]
-            h, w = img.shape[:2]
-        elif isinstance(img, torch.Tensor):
-            h, w = img.shape[-2:]
-        else:
+            img = torch.tensor(img[:,:,::-1].copy()).permute((2,0,1))
+            img = img.unsqueeze(0).float().to("cuda:0") / 255
+        elif not isinstance(img, torch.Tensor):
             raise TypeError
-
+        
+        h, w = img.shape[-2:]
+        
         num_faces = len(bboxes)
         
         bboxes_tensor = torch.tensor(

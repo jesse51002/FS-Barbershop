@@ -45,10 +45,12 @@ def save_vis_mask(img_path1, img_path2, sign, output_dir, mask):
     vis_mask = vis_seg(mask)
     PIL.Image.fromarray(vis_mask).save(vis_path)
 
-def save_original_mask(img_path, output_dir, mask):
+def save_original_mask(img_path, output_dir, mask, return_numpy=False):
     im_name = os.path.splitext(os.path.basename(img_path))[0]
     vis_path = os.path.join(output_dir, 'org_mask_{}.png'.format(im_name))
     vis_mask = vis_seg(mask)
+    if return_numpy:
+        return vis_mask
     PIL.Image.fromarray(vis_mask).save(vis_path)
 
 def save_human_mask(img_path1, img_path2, sign, output_dir, mask):
