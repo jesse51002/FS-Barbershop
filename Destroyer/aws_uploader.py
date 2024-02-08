@@ -1,0 +1,31 @@
+import os
+
+import boto3
+from boto3.s3.transfer import TransferConfig
+import shutil
+
+# Test it on a service (yours may be different)
+s3resource = boto3.client('s3')
+
+BUCKET_NAME = "fs-upper-body-gan-dataset"
+
+
+DESTROYED_DATA_ROOT = "./DestroyedData"
+
+config = TransferConfig(multipart_threshold=1024*25, max_concurrency=10,
+                        multipart_chunksize=1024*25, use_threads=True)
+    
+    
+zip_file = DESTROYED_DATA_ROOT + ".zip"
+
+
+
+print(f"Starting {zip_file} download")
+s3resource.download_file(Bucket=BUCKET_NAME, Key=os.path.basename(zip_file), Filename=zip_file)
+print(f"Downloaded {zip_file}")
+
+print(f"unzip for {DESTROYED_DATA_ROOT}")
+shutil.unpack_archive(zip_file, DESTROYED_DATA_ROOT)
+os.remove(zip_file)
+
+print("Finished downloading and unzipping data")
