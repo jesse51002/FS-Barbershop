@@ -16,16 +16,19 @@ config = TransferConfig(multipart_threshold=1024*25, max_concurrency=10,
                         multipart_chunksize=1024*25, use_threads=True)
     
     
-zip_file = DESTROYED_DATA_ROOT + ".zip"
+zip_output_location = DESTROYED_DATA_ROOT + ".zip"
+    
+print(f"making zip for {DESTROYED_DATA_ROOT}")
+shutil.make_archive(DESTROYED_DATA_ROOT, 'zip', DESTROYED_DATA_ROOT)
+print(f"finished zipping for {DESTROYED_DATA_ROOT}")
+    
+print(f"uploading {DESTROYED_DATA_ROOT}.zip")
+s3resource.upload_file(zip_output_location, BUCKET_NAME, os.path.basename(DESTROYED_DATA_ROOT) + ".zip",
+ExtraArgs={ 'ACL': 'public-read', 'ContentType': 'video/mp4'},
+Config = config,
+)
+print(f"Finished uploading {DESTROYED_DATA_ROOT}.zip")
 
 
-
-print(f"Starting {zip_file} download")
-s3resource.download_file(Bucket=BUCKET_NAME, Key=os.path.basename(zip_file), Filename=zip_file)
-print(f"Downloaded {zip_file}")
-
-print(f"unzip for {DESTROYED_DATA_ROOT}")
-shutil.unpack_archive(zip_file, DESTROYED_DATA_ROOT)
-os.remove(zip_file)
-
-print("Finished downloading and unzipping data")
+# delete zip file
+os.remove(zip_output_location)

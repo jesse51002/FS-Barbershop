@@ -11,5 +11,17 @@ BUCKET_NAME = "fs-upper-body-gan-dataset"
 
 
 DESTROYED_DATA_ROOT = "./DestroyedData"
+    
+zip_file = DESTROYED_DATA_ROOT + ".zip"
 
 
+
+print(f"Starting {zip_file} download")
+s3resource.download_file(Bucket=BUCKET_NAME, Key=os.path.basename(zip_file), Filename=zip_file)
+print(f"Downloaded {zip_file}")
+
+print(f"unzip for {DESTROYED_DATA_ROOT}")
+shutil.unpack_archive(zip_file, DESTROYED_DATA_ROOT)
+os.remove(zip_file)
+
+print("Finished downloading and unzipping data")
