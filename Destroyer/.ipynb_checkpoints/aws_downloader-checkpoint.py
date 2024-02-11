@@ -10,7 +10,7 @@ BUCKET_NAME = "fs-upper-body-gan-dataset"
 
 
 DESTROYED_DATA_ROOT = "./DestroyedData"
-
+    
 zip_file = DESTROYED_DATA_ROOT + ".zip"
 
 
