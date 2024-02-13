@@ -2,18 +2,15 @@ import os
 import sys
 sys.path.insert(0,'./')
 
+import random
 import cv2
 import math
 from multiprocessing import Process
-import time
 import matplotlib.pyplot as plt
 import numpy as np
 from farl_segmentation.seg_export import get_segmentation, output_bb
-from utils.seg_utils import save_original_mask
+from mask_viewer import vis_seg
 import torch
-
-from huggingface_hub import hf_hub_download
-from ultralytics import YOLO
 
 MUTLIPROCESS = True
 PROCESS_COUNT = 4
@@ -23,11 +20,15 @@ ANGLE_FACE_MULT = 2
 MINIMUM_QUALITY = 256
 
 
+# Dataset link: https://github.com/lemondan/HumanParsing-Dataset
+# Download from here:  https://drive.google.com/drive/folders/0BzvH3bSnp3E9QjVYZlhWSjltSWM?resourcekey=0-nkS8bDVjPs3bEw3UZW-omA
 
-MASK_FOLDER  = "./DiffusionDatacreator/humanparsing/SegmentationClassAug"
-IMAGES_FOLDER  = "./DiffusionDatacreator/humanparsing/JPEGImages"
+RAW_DATA_ROOT = "./Data/RawData"
 
-PARSED_ROOT = "./DiffusionDatacreator/ParsedData"
+MASK_FOLDER  = "./Data/RawData/SegmentationClassAug"
+IMAGES_FOLDER  = "./Data/RawData/JPEGImages"
+
+PARSED_ROOT = "./Data/ParsedData"
 PARSED_IMAGES = os.path.join(PARSED_ROOT, "images")
 PARSED_MASKS = os.path.join(PARSED_ROOT, "masks")
 PARSED_MASKS_VIS = os.path.join(PARSED_ROOT, "masks_vis")
@@ -70,6 +71,44 @@ body_parse_classes = {
 13 : glasses
 """
 
+# This will line up the top of the head to the same place on all images
+# This will help with hairstyle alignment
+# It will also TRY to match the width of all the faces
+def get_directional_scale(w, h):
+    AVERAGE_H_TO_W = 1.385
+    MAX_RATIO = 1.5
+    
+    ratio = h / w
+
+    # Makes sure     the box doesnt get to thin, so does calcuations on a thicker box
+    if ratio >= MAX_RATIO:
+        w = h / MAX_RATIO
+        ratio = MAX_RATIO
+
+    # Gets target size
+    target_size = int(SIZE_FACE_MULT * AVERAGE_H_TO_W * w)
+    # makes it divisible by 2
+    target_size += target_size % 2
+
+    
+    average_ratio_h = w * AVERAGE_H_TO_W
+    # Face top will be aligned to this position
+    average_ratio_y0 = int((target_size - average_ratio_h) / 2)
+
+    # Align face to the right position
+    bottom_extend = average_ratio_y0 + math.ceil(h / 2)
+    top_extend = target_size - (average_ratio_y0 + math.ceil(h / 2))
+    
+    # Craete results dictionary
+    results = {
+        "bottom": bottom_extend,
+        "top": top_extend,
+        "left": int(target_size / 2),
+        "right": int(target_size / 2)
+    }
+
+    return results
+
 
 def crop_image(img, mask, res_check=False, bottom_extend=False, max_faces=1):
     # Detect faces
@@ -86,8 +125,6 @@ def crop_image(img, mask, res_check=False, bottom_extend=False, max_faces=1):
     
     x, y, w, h = faces[0][0], faces[0][1], faces[0][2] - faces[0][0], faces[0][3] - faces[0][1]
 
-    # img = cv2.rectangle(img, (x,y), (x+w, y+h), (255,0,0), 2)
-
     
     # return img, img[:,:,0], (x, y, w, h)
     mid_x, mid_y = int(x + w/2), int(y + h/2)
@@ -99,59 +136,62 @@ def crop_image(img, mask, res_check=False, bottom_extend=False, max_faces=1):
     if res_check and total_res < MINIMUM_QUALITY:
         print(f"{total_res} Resolution wasnt big enough... Rejected")
         return None, None, None
+    
+    directoinal_scale = get_directional_scale(w, h)
         
-    bounds =  (
-        int(mid_x - max_size * SIZE_FACE_MULT), # Bottom
-        int(mid_x + max_size * SIZE_FACE_MULT), # top
-        int(mid_y - max_size * SIZE_FACE_MULT), # left
-        int(mid_y + max_size * SIZE_FACE_MULT) # right
+    bounds = (
+        mid_x - directoinal_scale["left"], # left
+        mid_x + directoinal_scale["right"], # right
+        mid_y - directoinal_scale["bottom"], # bottom 
+        mid_y + directoinal_scale["top"] # top
     )
         
         
-    b,t,l,r = bounds 
+    l, r, b, t = bounds 
         
-    b_bounds, t_bounds, l_bounds, r_bounds = (
-        max(0,-1*b),
-        max(0,t - img.shape[1]),
+    l_bounds, r_bounds, b_bounds, t_bounds = (
         max(0,-1*l), 
-        max(0,r - img.shape[0])
+        max(0,r - img.shape[1]),
+        max(0,-1*b),
+        max(0,t - img.shape[0]),
         )
         
-    if r_bounds > 0:
+    if t_bounds > 0:
         print("Bottom doesnt reach... Rejected")
         return None, None, None
             
+        
     bounded_image = img[
-        max(0, l): min(img.shape[0], r),
-        max(0, b): min(img.shape[1], t)
+        max(0, b): min(img.shape[0], t),
+        max(0, l): min(img.shape[1], r)
         ]
         
     bounded_image = cv2.copyMakeBorder(
         bounded_image, 
-        l_bounds,  # left
-        r_bounds, # right
         b_bounds, # bottom
-        t_bounds, #top
-        cv2.BORDER_CONSTANT #borderType
+        t_bounds, # top
+        l_bounds, # left
+        r_bounds, # right
+        cv2.BORDER_CONSTANT # borderType
         )
 
     bounded_mask = mask[
-        max(0, l): min(mask.shape[0], r),
-        max(0, b): min(mask.shape[1], t)
+        max(0, b): min(img.shape[0], t),
+        max(0, l): min(img.shape[1], r)
         ]
 
     bounded_mask = cv2.copyMakeBorder(
         bounded_mask, 
-        l_bounds,  # left
-        r_bounds, # right
         b_bounds, # bottom
-        t_bounds, #top
-        cv2.BORDER_CONSTANT #borderType
+        t_bounds, # top
+        l_bounds, # left
+        r_bounds, # right
+        cv2.BORDER_CONSTANT # borderType
         )
 
-    center = int(max_size * SIZE_FACE_MULT)
+    face_center_x, face_center_y = directoinal_scale["left"], directoinal_scale["bottom"]
             
-    return bounded_image, bounded_mask, (int(center - w / 2), int(center - h / 2), int(center + w / 2), int(center + h / 2))
+    return bounded_image, bounded_mask, (int(face_center_x - w / 2), int(face_center_y - h / 2), int(face_center_x + w / 2), int(face_center_y + h / 2))
 
 
 def create_mask(img_pth, mask_pth):
@@ -165,7 +205,7 @@ def create_mask(img_pth, mask_pth):
 
     # Mask touching edges check
     test_areaY = np.stack([mask[:, :5], mask[:, -5:]], axis=1)
-    test_areaX= mask[:5]
+    test_areaX = mask[:5]
         
     invlaid_idxsY = np.where(test_areaY != 0)
     invlaid_idxsX = np.where(test_areaX != 0)
@@ -207,7 +247,7 @@ def create_mask(img_pth, mask_pth):
     
     # Only keeps the body mask below the nose
     # The face segmentation model will handle the face area
-    nose_idx =  np.where(face_seg == 6)
+    nose_idx = np.where(face_seg == 6)
     if len(nose_idx[0]) == 0:
         print("No nose found")
         return None, None, None
@@ -259,8 +299,8 @@ def parse_names(names):
         cv2.imwrite(output_img_pth, bounded_image)
         cv2.imwrite(output_mask_pth, result_mask)
         
-        display_new_mask = save_original_mask(mask_file_name, PARSED_MASKS_VIS, result_mask, return_numpy=True)
-        body_mask = save_original_mask(mask_file_name, PARSED_MASKS_VIS, bounded_mask, return_numpy=True)
+        display_new_mask = vis_seg(result_mask)
+        body_mask = vis_seg(bounded_mask)
 
         # setting values to rows and column variables 
         rows = 1
@@ -291,7 +331,7 @@ def parse_names(names):
         plt.savefig(os.path.join(PARSED_MASKS_VIS, mask_file_name))
         plt.close()
         
-        print(f"Finished creating data: {count}")
+        print(f"Finished creating data: {count}/{len(names)}")
         count += 1
 
     print(f"Created {count} images and failed {failed_count}")
@@ -306,6 +346,7 @@ def create_dataset():
         os.makedirs(PARSED_MASKS_VIS)
 
     names = os.listdir(IMAGES_FOLDER)
+    random.shuffle(names)
 
     done_names = os.listdir(PARSED_IMAGES)
 
@@ -344,6 +385,8 @@ def create_dataset():
 if __name__ == "__main__":
     create_dataset()
 
+
+        
     
 
     
