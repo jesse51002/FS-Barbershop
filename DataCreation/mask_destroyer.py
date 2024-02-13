@@ -10,10 +10,10 @@ from PIL import Image, ImageDraw
 from skimage import draw
 
 
-DESTROYED_DATA_ROOT = "./Data/DestroyedDataTest"
+DESTROYED_DATA_ROOT = "./MaskData/DestroyedDataTest"
 
-MASK_ROOT = "./Data/ParsedData/masks"
-IMAGE_ROOT = "./Data/ParsedData/images"
+MASK_ROOT = "./MaskData/ParsedData/masks"
+IMAGE_ROOT = "./MaskData/ParsedData/images"
 
 
 NO_DESTROY_PERC = 0.05

@@ -23,12 +23,12 @@ MINIMUM_QUALITY = 256
 # Dataset link: https://github.com/lemondan/HumanParsing-Dataset
 # Download from here:  https://drive.google.com/drive/folders/0BzvH3bSnp3E9QjVYZlhWSjltSWM?resourcekey=0-nkS8bDVjPs3bEw3UZW-omA
 
-RAW_DATA_ROOT = "./Data/RawData"
+RAW_DATA_ROOT = "./MaskData/RawData"
 
-MASK_FOLDER  = "./Data/RawData/SegmentationClassAug"
-IMAGES_FOLDER  = "./Data/RawData/JPEGImages"
+MASK_FOLDER  = "./MaskData/RawData/SegmentationClassAug"
+IMAGES_FOLDER  = "./MaskData/RawData/JPEGImages"
 
-PARSED_ROOT = "./Data/ParsedData"
+PARSED_ROOT = "./MaskData/ParsedData"
 PARSED_IMAGES = os.path.join(PARSED_ROOT, "images")
 PARSED_MASKS = os.path.join(PARSED_ROOT, "masks")
 PARSED_MASKS_VIS = os.path.join(PARSED_ROOT, "masks_vis")
