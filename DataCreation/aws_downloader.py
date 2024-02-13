@@ -9,7 +9,7 @@ s3resource = boto3.client('s3')
 BUCKET_NAME = "fs-upper-body-gan-dataset"
 
 
-DESTROYED_DATA_ROOT = "./DestroyedData"
+DESTROYED_DATA_ROOT = "./MaskData/DestroyedData"
 
 zip_file = DESTROYED_DATA_ROOT + ".zip"
 
