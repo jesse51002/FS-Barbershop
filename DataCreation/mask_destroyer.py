@@ -1,7 +1,4 @@
 import os
-
-from multiprocessing import Process
-
 import random
 import math
 import cv2
@@ -10,20 +7,128 @@ import matplotlib.pyplot as plt
 
 from mask_viewer import vis_seg
 from PIL import Image, ImageDraw
+from skimage import draw
 
 
-PROCESS_COUNT = 12
+DESTROYED_DATA_ROOT = "./Data/DestroyedDataTest"
 
-DESTROYED_DATA_ROOT = "./DestroyedData"
-GROUND_TRUTH_PTH = os.path.join(DESTROYED_DATA_ROOT, "truth")
-VISUALIZE_PTH = os.path.join(DESTROYED_DATA_ROOT, "visualize")
-
-MASK_ROOT = "./ParsedData/masks"
+MASK_ROOT = "./Data/ParsedData/masks"
+IMAGE_ROOT = "./Data/ParsedData/images"
 
 
-DESTROY_TYPES = [["hair"], ["brush", "irregular"], ["crop"]]
+NO_DESTROY_PERC = 0.05
+DESTROY_TYPES_OPTIONS = [
+    ["hair", "circle", "irregular", "crop"],
+    ["hair", "circle", "brush",  "crop"],
+    ["hair", "circle"]
+]
 
 CROP_DIRECTIONS = ["top", "bottom", "right", "left"]
+
+
+def create_multi_dim_mask(mask):
+    """
+    Input:
+        mask (np.ndarray): 2d mask
+
+    Output:
+        mask (np.ndarray): mask with [h, w, 2] shape
+
+    Creates a mask with 2 dimesions dimesion 0 with non hair, then dimesion 1 with hair.
+    This improves masks fixing as occlusion doesnt cover face shape data.
+    """
+    
+    # Remvoes third axis
+    multi_dim_mask = np.zeros((mask.shape[0], mask.shape[1], 2))
+        
+    # makes all axis zeros second axis
+    multi_dim_mask[:,:,0] = mask
+    # Moves the hair mask to 2nd channel
+    multi_dim_mask[multi_dim_mask[:,:,0] == 10, 1] = 10
+    multi_dim_mask[multi_dim_mask[:,:,0] == 10, 0] = 0
+
+    return multi_dim_mask
+
+def destroy_mask(multi_dim_mask):    
+    """
+    Input:
+        mask (np.ndarray): mask with [h, w, 2] shape
+
+    Output:
+        destroyed_mask (np.ndarray): mask with [h, w, 2] shape
+
+    Adds holes and distrotions to the hair of the input mask for mask fixing training
+    """
+    combination = []
+
+    dont_destroy = random.random() <= NO_DESTROY_PERC
+
+    if not dont_destroy:
+        combination = DESTROY_TYPES_OPTIONS[random.randint(0, len(DESTROY_TYPES_OPTIONS) - 1)]
+
+    destroyed_mask = multi_dim_mask.copy()
+    for destroy_type in combination:
+        if destroy_type == "hair":
+            destroyed_mask = hair_destroy(destroyed_mask)
+        elif destroy_type == "brush": 
+            destroyed_mask = brush_stroke_mask(destroyed_mask)
+        elif destroy_type == "irregular":
+            destroyed_mask = get_irregular_mask(destroyed_mask)
+        elif destroy_type == "crop":
+            destroyed_mask = crop_destroy(destroyed_mask)
+        elif destroy_type == "circle":
+            destroyed_mask = circles_destroy(destroyed_mask)
+
+    return destroyed_mask
+    
+            
+def test_function(test_amount=100):
+    if not os.path.isdir(DESTROYED_DATA_ROOT):
+        os.makedirs(DESTROYED_DATA_ROOT)
+    else:
+        for name in os.listdir(DESTROYED_DATA_ROOT):
+            file_pth = os.path.join(DESTROYED_DATA_ROOT, name)
+            if not os.path.isfile(file_pth):
+                continue
+            os.remove(file_pth)
+    
+    names = os.listdir(MASK_ROOT)
+    random.shuffle(names)
+    names = names[:min(test_amount, len(names))]
+
+    for mask_name in names:
+        msk_pth = os.path.join(MASK_ROOT, mask_name)
+
+        mask = cv2.imread(msk_pth)[:,:, 0]
+
+        multi_dim_mask = create_multi_dim_mask(mask)
+        destroyed_mask = destroy_mask(multi_dim_mask)
+        # create figure 
+        fig = plt.figure(figsize=(10, 7)) 
+            
+        rows = 1
+        columns = 2
+            
+        # Visualizes original
+        fig.add_subplot(rows, columns, 1) 
+        plt.imshow(vis_seg(get_vis_mask(multi_dim_mask))) 
+        plt.axis('off') 
+        plt.title("original") 
+                
+        # Visualzies the destroyed masks
+        fig.add_subplot(rows, columns, 2) 
+        plt.imshow(vis_seg(get_vis_mask(destroyed_mask))) 
+        plt.axis('off') 
+        plt.title("Destroyed Mask") 
+            
+        
+        # plt.show()
+        plt.savefig(os.path.join(DESTROYED_DATA_ROOT, mask_name))
+        plt.close()
+
+def get_vis_mask(mask):
+    vis_mask = np.where(mask[:,:, 1] != 0, mask[:,:, 1], mask[:,:, 0])
+    return vis_mask
 
 # Calculates the bounding box information from the semantic label
 def calculate_bound_box(mask):
@@ -364,142 +469,55 @@ def get_irregular_mask(img, area_ratio_range=(0.05, 0.5), **kwargs):
     new_img = img.copy()
     new_img[mask == 1, :] = 0
     return new_img
-        
-# Gets all possible destroy combinations in order to make a dataset
-def get_combinations(current = [], left_to_add = DESTROY_TYPES):  
-    
-    if len(left_to_add) == 0:
-        if len(current) > 0:
-            return [current]
-        else:
-            return []
-    
-    reminder_arr = left_to_add[1:]
-    
-    new_combs = []
-    
-    new_combs += get_combinations(current + [], reminder_arr)
-    for destoy_type in left_to_add[0]:
-        new_combs += get_combinations(current + [destoy_type], reminder_arr)
-             
-    return new_combs
 
-def get_vis_mask(mask):
-    vis_mask = np.where(mask[:,:, 1] != 0, mask[:,:, 1], mask[:,:, 0])
-    return vis_mask
-
-def destroy_dataset(destroy_pths):
-    if not os.path.isdir(VISUALIZE_PTH):
-        os.makedirs(VISUALIZE_PTH)
-        
-    if not os.path.isdir(GROUND_TRUTH_PTH):
-        os.makedirs(GROUND_TRUTH_PTH)
+def circles_destroy(mask: np.ndarray, min_circles=2, max_circles=5):    
+    cir_dest_mask = mask.copy()
     
-    
-    destroy_combinations = get_combinations()
-    
-    # Create paths for destroy combinations
-    destroy_names = ["_".join(x) for x in destroy_combinations]
-    for cur_destroy_name in destroy_names:
-        target_dir = os.path.join(DESTROYED_DATA_ROOT, cur_destroy_name)
-        if not os.path.isdir(target_dir):
-            os.makedirs(target_dir)
-    
-    
-    for mask_num, mask_name in enumerate(destroy_pths):
-        print(mask_name, ":", mask_num, "/",  len(destroy_pths))
-        
-        mask_pth = os.path.join(MASK_ROOT, mask_name)
-        mask = cv2.imread(mask_pth)
+    right, left, bottom, top  = calculate_bound_box(cir_dest_mask)
 
-        # Remvoes third axis
-        mask = mask[:, :, 0:2]
-        
-        # makes all axis zeros second axis
-        mask[:,:,1:] = 0
-        # Moves the hair mask to 2nd channel
-        mask[mask[:,:,0] == 10, 1] = 10
-        mask[mask[:,:,0] == 10, 0] = 0
-        
-        destroyed_masks = []
-        
-        for combination in destroy_combinations:
-            
-            current_mask = mask.copy()
+    amount = random.randint(min_circles, max_circles)
 
-            # destroys the mask
-            for destroy_type in combination:
-                if destroy_type == "hair":
-                    current_mask = hair_destroy(current_mask)
-                elif destroy_type == "brush": 
-                    current_mask = brush_stroke_mask(current_mask)
-                elif destroy_type == "irregular":
-                    current_mask = get_irregular_mask(current_mask)
-                elif destroy_type == "crop":
-                    current_mask = crop_destroy(current_mask)
-            
-            # Appends to destroyed masks list
-            destroyed_masks.append(current_mask)
-        
-        
-        # create figure 
-        fig = plt.figure(figsize=(10, 7)) 
-        
-        rows = math.ceil(len(destroyed_masks) / 3)
-        columns = 3
+    min_perc = 0.05
+    max_perc = 0.15
 
-        npy_file_name = mask_name.split(".")[0]
-        
-        # Saves original
-        np.save(os.path.join(GROUND_TRUTH_PTH, npy_file_name), mask)
-        
-        # Visualizes original
-        fig.add_subplot(rows, columns, 1) 
-        plt.imshow(vis_seg(get_vis_mask(mask))) 
-        plt.axis('off') 
-        plt.title("original") 
-        
-        for i, des_mask in enumerate(destroyed_masks):
-            # Saves the mask
-            np.save(os.path.join(DESTROYED_DATA_ROOT, destroy_names[i], npy_file_name), des_mask)
-            
-            # Visualzies the destroyed masks
-            fig.add_subplot(rows, columns, i + 2) 
-            plt.imshow(vis_seg(get_vis_mask(des_mask))) 
-            plt.axis('off') 
-            plt.title(destroy_names[i]) 
-        
-    
-        # plt.show()
-        plt.savefig(os.path.join(VISUALIZE_PTH, mask_name))
-        plt.close()
-        
+    # Amount that random float is squared to increase the chances of lower numbers
+    lower_priority = 3
 
-def multiprocess_destroy():
-    arr = os.listdir(MASK_ROOT)
-    
-    amount_per = math.ceil(len(arr) / PROCESS_COUNT)
-    split_arrs = [[] for _ in range(PROCESS_COUNT)]
-    
-    # splits the dictionary
-    global_i = 0
-    for i in range(PROCESS_COUNT):
-        for j in range(amount_per):
-            if global_i >= len(arr):
-                break
-            split_arrs[i].append(arr[global_i])
-            global_i += 1
 
-    processes = []
+    for _ in range(amount):
+        # Calculates the random center
+        center_y = int(bottom + (top - bottom) * random.random())
+        center_x = int(right + (left - right) * random.random())
 
-    for i in range(PROCESS_COUNT):
-        p = Process(target=destroy_dataset, args=(split_arrs[i],))
-        p.start()
-        processes.append(p)
+        # Uses the larger bound direction as a scaling refernce
+        square_size = max((top - bottom), (left - right))
 
-    for p in processes:
-        p.join()
+        # Gets the scaled size of the x and y axis ---
 
-        
+        rand_y_max_size = square_size * (min_perc + (max_perc - min_perc) * random.random())
+        relative_y_size = min_perc + (max_perc - min_perc) * math.pow(random.random(), lower_priority)
+        size_y = int(relative_y_size * (rand_y_max_size * 0.75) + (rand_y_max_size * 0.25))
+
+        rand_x_max_size = square_size * (min_perc + (max_perc - min_perc) * random.random())
+        relative_x_size = min_perc + (max_perc - min_perc) * math.pow(random.random(), lower_priority)
+        size_x = int(relative_x_size * (rand_x_max_size * 0.75) + (rand_x_max_size * 0.25))
+
+        # ---
+
+        # Gets a ranodm angle
+        rand_angle = 2 * math.pi * random.random()
+
+        # Calculatse ellipse mask and sets it to zero
+        rr, cc = draw.ellipse(center_y, center_x, size_y, size_x, shape=cir_dest_mask.shape, rotation=rand_angle)
+
+        cir_dest_mask[rr, cc] = 0
+
+
+    return cir_dest_mask
+
 if __name__ == "__main__":
-    multiprocess_destroy()
+    test_function()
+
+
+
+
