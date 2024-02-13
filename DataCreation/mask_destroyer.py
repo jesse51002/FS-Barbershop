@@ -82,7 +82,7 @@ def destroy_mask(multi_dim_mask):
     return destroyed_mask
     
             
-def test_function(test_amount=100):
+def test_function(test_amount=100, visualize=True):
     if not os.path.isdir(DESTROYED_DATA_ROOT):
         os.makedirs(DESTROYED_DATA_ROOT)
     else:
@@ -97,34 +97,37 @@ def test_function(test_amount=100):
     names = names[:min(test_amount, len(names))]
 
     for mask_name in names:
+        print(mask_name)
         msk_pth = os.path.join(MASK_ROOT, mask_name)
 
         mask = cv2.imread(msk_pth)[:,:, 0]
 
         multi_dim_mask = create_multi_dim_mask(mask)
         destroyed_mask = destroy_mask(multi_dim_mask)
-        # create figure 
-        fig = plt.figure(figsize=(10, 7)) 
-            
-        rows = 1
-        columns = 2
-            
-        # Visualizes original
-        fig.add_subplot(rows, columns, 1) 
-        plt.imshow(vis_seg(get_vis_mask(multi_dim_mask))) 
-        plt.axis('off') 
-        plt.title("original") 
+
+        if visualize:
+            # create figure 
+            fig = plt.figure(figsize=(10, 7)) 
                 
-        # Visualzies the destroyed masks
-        fig.add_subplot(rows, columns, 2) 
-        plt.imshow(vis_seg(get_vis_mask(destroyed_mask))) 
-        plt.axis('off') 
-        plt.title("Destroyed Mask") 
+            rows = 1
+            columns = 2
+                
+            # Visualizes original
+            fig.add_subplot(rows, columns, 1) 
+            plt.imshow(vis_seg(get_vis_mask(multi_dim_mask))) 
+            plt.axis('off') 
+            plt.title("original") 
+                    
+            # Visualzies the destroyed masks
+            fig.add_subplot(rows, columns, 2) 
+            plt.imshow(vis_seg(get_vis_mask(destroyed_mask))) 
+            plt.axis('off') 
+            plt.title("Destroyed Mask") 
+                
             
-        
-        # plt.show()
-        plt.savefig(os.path.join(DESTROYED_DATA_ROOT, mask_name))
-        plt.close()
+            # plt.show()
+            plt.savefig(os.path.join(DESTROYED_DATA_ROOT, mask_name))
+            plt.close()
 
 def get_vis_mask(mask):
     vis_mask = np.where(mask[:,:, 1] != 0, mask[:,:, 1], mask[:,:, 0])
@@ -225,14 +228,14 @@ def hair_destroy(mask: np.ndarray, amount=None):
         scaled_hair_mask = scaled_hair_mask[:, -(hair_right + hair_move_x):]
         hair_right += -(hair_right + hair_move_x)
     if hair_bottom + hair_move_y < 0:
-        scaled_hair_mask = scaled_hair_mask[:, -(hair_bottom + hair_move_y):]
+        scaled_hair_mask = scaled_hair_mask[-(hair_bottom + hair_move_y):]
         hair_bottom += -(hair_bottom + hair_move_y)
     
     if hair_left + hair_move_x >= mask.shape[1]:
         scaled_hair_mask = scaled_hair_mask[:, : -(1 + (hair_left + hair_move_x) - mask.shape[1])]
         hair_left -= 1 + (hair_left + hair_move_x) - mask.shape[1]
     if hair_top + hair_move_y >= mask.shape[0]:
-        scaled_hair_mask = scaled_hair_mask[:-(1 + (hair_top + hair_move_y) - mask.shape[0])]
+        scaled_hair_mask = scaled_hair_mask[: -(1 + (hair_top + hair_move_y) - mask.shape[0])]
         hair_top -= 1 + (hair_top + hair_move_y) - mask.shape[0]
     
     
