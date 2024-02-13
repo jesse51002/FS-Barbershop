@@ -49,8 +49,8 @@ class MaskFixingDataset(data.Dataset):
         else:
             self.imgs = imgs
         self.tfs = transforms.Compose([
+                transforms.ToTensor(),
                 transforms.Resize((image_size[0], image_size[1])),
-                transforms.ToTensor()
         ])
         self.loader = loader
         self.image_size = image_size
@@ -61,19 +61,16 @@ class MaskFixingDataset(data.Dataset):
         base_mask = self.loader(path)[:, :, 0]
     
         multi_dim_mask = create_multi_dim_mask(base_mask)
-        multi_dim_mask = self.preprocess_mask(multi_dim_mask)
-        
         destroyed_mask = destroy_mask(multi_dim_mask)
+    
+        multi_dim_mask = self.preprocess_mask(multi_dim_mask)
         destroyed_mask = self.preprocess_mask(destroyed_mask)
-
+        
         mask = torch.zeros_like(destroyed_mask)
         mask[0] = torch.where(destroyed_mask[0] != 0, 0, 1)
         mask[1] = torch.ones_like(destroyed_mask[1])
         
         cond_image = torch.where(mask == 1, torch.randn_like(destroyed_mask), destroyed_mask)
-
-        multi_dim_mask = self.tfs(multi_dim_mask)
-        destroyed_mask = self.tfs(destroyed_mask)
         
         mask_img = destroyed_mask
 
@@ -85,12 +82,16 @@ class MaskFixingDataset(data.Dataset):
         return ret
 
     def preprocess_mask(self, mask):
-        # moves rgb axis to first
-        mask = np.transpose(mask.astype(float), (2, 0, 1))
+        # Converts to float
+        mask = mask.astype(np.float32)
         # This turns classes from ints into a decimal between 0 and 1 (there are 15 classes from (0 - 14))
         mask[0] = mask[0] / 14
         # This turnes it into a binary mask for hair
         mask[1] = mask[1] / 10
+
+        # resizes and converts to tensor
+        mask = self.tfs(mask)
+        return mask
         
 
     def __len__(self):

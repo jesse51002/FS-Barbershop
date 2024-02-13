@@ -390,6 +390,7 @@ class UNet(nn.Module):
             nn.Linear(cond_embed_dim, cond_embed_dim),
         )
 
+        
         ch = input_ch = int(channel_mults[0] * inner_channel)
         self.input_blocks = nn.ModuleList(
             [EmbedSequential(nn.Conv2d(in_channel, ch, 3, padding=1))]
@@ -532,16 +533,16 @@ class UNet(nn.Module):
         hs = []
         gammas = gammas.view(-1, )
         emb = self.cond_embed(gamma_embedding(gammas, self.inner_channel))
-
+        
         h = x.type(torch.float32)
         for module in self.input_blocks:
-            print("h:", h.shape)
             h = module(h, emb)
             hs.append(h)
         h = self.middle_block(h, emb)
         for module in self.output_blocks:
             h = torch.cat([h, hs.pop()], dim=1)
             h = module(h, emb)
+
         h = h.type(x.dtype)
         return self.out(h)
 
