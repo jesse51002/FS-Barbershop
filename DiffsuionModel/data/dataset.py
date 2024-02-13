@@ -1,11 +1,17 @@
+import sys
+sys.path.insert(0,'../DataCreation/')
+
 import torch.utils.data as data
 from torchvision import transforms
 from PIL import Image
 import os
 import torch
 import numpy as np
+import cv2
 
 from .util.mask import (bbox2mask, brush_stroke_mask, get_irregular_mask, random_bbox, random_cropping_bbox)
+
+from mask_destroyer import create_multi_dim_mask, destroy_mask
 
 IMG_EXTENSIONS = [
     '.jpg', '.JPG', '.jpeg', '.JPEG',
@@ -31,6 +37,64 @@ def make_dataset(dir):
 
 def pil_loader(path):
     return Image.open(path).convert('RGB')
+
+def cv2_loader(path):
+    return cv2.imread(path)
+
+class MaskFixingDataset(data.Dataset):
+    def __init__(self, data_root, mask_config={}, data_len=-1, image_size=[256, 256], loader=cv2_loader):
+        imgs = make_dataset(data_root)
+        if data_len > 0:
+            self.imgs = imgs[:int(data_len)]
+        else:
+            self.imgs = imgs
+        self.tfs = transforms.Compose([
+                transforms.Resize((image_size[0], image_size[1])),
+                transforms.ToTensor()
+        ])
+        self.loader = loader
+        self.image_size = image_size
+    
+    def __getitem__(self, index):
+        ret = {}
+        path = self.imgs[index]
+        base_mask = self.loader(path)[:, :, 0]
+    
+        multi_dim_mask = create_multi_dim_mask(base_mask)
+        multi_dim_mask = self.preprocess_mask(multi_dim_mask)
+        
+        destroyed_mask = destroy_mask(multi_dim_mask)
+        destroyed_mask = self.preprocess_mask(destroyed_mask)
+
+        mask = torch.zeros_like(destroyed_mask)
+        mask[0] = torch.where(destroyed_mask[0] != 0, 0, 1)
+        mask[1] = torch.ones_like(destroyed_mask[1])
+        
+        cond_image = torch.where(mask == 1, torch.randn_like(destroyed_mask), destroyed_mask)
+
+        multi_dim_mask = self.tfs(multi_dim_mask)
+        destroyed_mask = self.tfs(destroyed_mask)
+        
+        mask_img = destroyed_mask
+
+        ret['gt_image'] = multi_dim_mask
+        ret['cond_image'] = cond_image
+        ret['mask_image'] = mask_img
+        ret['mask'] = mask
+        ret['path'] = path.rsplit("/")[-1].rsplit("\\")[-1]
+        return ret
+
+    def preprocess_mask(self, mask):
+        # moves rgb axis to first
+        mask = np.transpose(mask.astype(float), (2, 0, 1))
+        # This turns classes from ints into a decimal between 0 and 1 (there are 15 classes from (0 - 14))
+        mask[0] = mask[0] / 14
+        # This turnes it into a binary mask for hair
+        mask[1] = mask[1] / 10
+        
+
+    def __len__(self):
+        return len(self.imgs)
 
 class InpaintDataset(data.Dataset):
     def __init__(self, data_root, mask_config={}, data_len=-1, image_size=[256, 256], loader=pil_loader):
