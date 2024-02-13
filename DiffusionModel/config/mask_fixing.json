@@ -10,16 +10,16 @@
         "tb_logger": "tb_logger", // path of tensorboard logger
         "results": "results",
         "checkpoint": "checkpoint",
-        "resume_state": "experiments/train_inpainting_places2_220429_160230/checkpoint/8" 
-        // "resume_state": null // ex: 100, loading .state  and .pth from given epoch and iteration
+        //"resume_state": "experiments/train_inpainting_places2_220429_160230/checkpoint/8" 
+        "resume_state": null // ex: 100, loading .state  and .pth from given epoch and iteration
     },
 
     "datasets": { // train or test
         "train": { 
             "which_dataset": {  // import designated dataset using arguments 
-                "name": ["data.dataset", "InpaintDataset"], // import Dataset() class / function(not recommend) from data.dataset.py (default is [data.dataset.py])
+                "name": ["data.dataset", "MaskFixingDataset"], // import Dataset() class / function(not recommend) from data.dataset.py (default is [data.dataset.py])
                 "args":{ // arguments to initialize dataset
-                    "data_root": "../DestroyedData/",
+                    "data_root": "../MaskData/ParsedData/masks",
                     "data_len": -1,
                     "mask_config": {
                         "mask_mode": "hybrid"
@@ -46,9 +46,9 @@
         },
         "test": { 
             "which_dataset": {
-                "name": "InpaintDataset", // import Dataset() class / function(not recommend) from default file
+                "name": "MaskFixingDataset", // import Dataset() class / function(not recommend) from default file
                 "args":{
-                    "data_root": "datasets/place365/flist/test.flist",
+                    "data_root": "../MaskData/ParsedData/masks",
                     "mask_config": {
                         "mask_mode": "center"
                     }
