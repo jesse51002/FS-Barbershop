@@ -535,6 +535,7 @@ class UNet(nn.Module):
 
         h = x.type(torch.float32)
         for module in self.input_blocks:
+            print("h:", h.shape)
             h = module(h, emb)
             hs.append(h)
         h = self.middle_block(h, emb)
