@@ -1,8 +1,15 @@
+import sys
+sys.path.insert(0,'../DataCreation/')
+
 import torch
 import tqdm
 from core.base_model import BaseModel
 from core.logger import LogTracker
 import copy
+
+from mask_destroyer import get_visual_from_scaled_mask
+
+
 class EMA():
     def __init__(self, beta=0.9999):
         super().__init__()
@@ -66,19 +73,39 @@ class Palette(BaseModel):
         self.batch_size = len(data['path'])
     
     def get_current_visuals(self, phase='train'):
-        dict = {
-            'gt_image': (self.gt_image.detach()[:].float().cpu()+1)/2,
-            'cond_image': (self.cond_image.detach()[:].float().cpu()+1)/2,
-        }
-        if self.task in ['inpainting','uncropping']:
-            dict.update({
-                'mask': self.mask.detach()[:].float().cpu(),
-                'mask_image': (self.mask_image+1)/2,
-            })
+        dict = {}
+        if self.task != "mask_fixing":
+            dict = {
+                'gt_image': (self.gt_image.detach()[:].float().cpu()+1)/2,
+                'cond_image': (self.cond_image.detach()[:].float().cpu()+1)/2,
+            }
+        else:
+            dict = {
+                'gt_image': get_visual_from_scaled_mask(self.gt_image.detach()[:].float().cpu()),
+                'cond_image': get_visual_from_scaled_mask(self.cond_image.detach()[:].float().cpu()),
+            }
+            
+        if self.task in ['inpainting','uncropping','mask_fixing']:
+            if self.task != "mask_fixing":
+                dict.update({
+                    'mask': self.mask.detach()[:].float().cpu(),
+                    'mask_image': (self.mask_image+1)/2,
+                })
+            else:
+                dict.update({
+                    # 'mask': self.mask.detach()[:].float().cpu(),
+                    'mask_image': get_visual_from_scaled_mask((self.mask_image)),
+                })
         if phase != 'train':
-            dict.update({
-                'output': (self.output.detach()[:].float().cpu()+1)/2
-            })
+            if self.task != "mask_fixing":
+                dict.update({
+                    'output': (self.output.detach()[:].float().cpu()+1)/2
+                })
+            else:
+                dict.update({
+                    'output': get_visual_from_scaled_mask(self.output.detach()[:].float().cpu())
+                })
+                
         return dict
 
     def save_current_results(self):
@@ -87,14 +114,14 @@ class Palette(BaseModel):
         for idx in range(self.batch_size):
             ret_path.append('GT_{}'.format(self.path[idx]))
             ret_result.append(self.gt_image[idx].detach().float().cpu())
-
+            
             ret_path.append('Process_{}'.format(self.path[idx]))
             ret_result.append(self.visuals[idx::self.batch_size].detach().float().cpu())
             
             ret_path.append('Out_{}'.format(self.path[idx]))
             ret_result.append(self.visuals[idx-self.batch_size].detach().float().cpu())
         
-        if self.task in ['inpainting','uncropping']:
+        if self.task in ['inpainting','uncropping','mask_fixing']:
             ret_path.extend(['Mask_{}'.format(name) for name in self.path])
             ret_result.extend(self.mask_image)
 
@@ -135,13 +162,13 @@ class Palette(BaseModel):
             for val_data in tqdm.tqdm(self.val_loader):
                 self.set_input(val_data)
                 if self.opt['distributed']:
-                    if self.task in ['inpainting','uncropping']:
+                    if self.task in ['inpainting','uncropping','mask_fixing']:
                         self.output, self.visuals = self.netG.module.restoration(self.cond_image, y_t=self.cond_image, 
                             y_0=self.gt_image, mask=self.mask, sample_num=self.sample_num)
                     else:
                         self.output, self.visuals = self.netG.module.restoration(self.cond_image, sample_num=self.sample_num)
                 else:
-                    if self.task in ['inpainting','uncropping']:
+                    if self.task in ['inpainting','uncropping','mask_fixing']:
                         self.output, self.visuals = self.netG.restoration(self.cond_image, y_t=self.cond_image, 
                             y_0=self.gt_image, mask=self.mask, sample_num=self.sample_num)
                     else:
@@ -168,13 +195,13 @@ class Palette(BaseModel):
             for phase_data in tqdm.tqdm(self.phase_loader):
                 self.set_input(phase_data)
                 if self.opt['distributed']:
-                    if self.task in ['inpainting','uncropping']:
+                    if self.task in ['inpainting','uncropping','mask_fixing']:
                         self.output, self.visuals = self.netG.module.restoration(self.cond_image, y_t=self.cond_image, 
                             y_0=self.gt_image, mask=self.mask, sample_num=self.sample_num)
                     else:
                         self.output, self.visuals = self.netG.module.restoration(self.cond_image, sample_num=self.sample_num)
                 else:
-                    if self.task in ['inpainting','uncropping']:
+                    if self.task in ['inpainting','uncropping','mask_fixing']:
                         self.output, self.visuals = self.netG.restoration(self.cond_image, y_t=self.cond_image, 
                             y_0=self.gt_image, mask=self.mask, sample_num=self.sample_num)
                     else:

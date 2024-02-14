@@ -4,6 +4,7 @@ import math
 import cv2
 import numpy as np
 import matplotlib.pyplot as plt
+import torch
 
 from mask_viewer import vis_seg
 from PIL import Image, ImageDraw
@@ -80,8 +81,53 @@ def destroy_mask(multi_dim_mask):
             destroyed_mask = circles_destroy(destroyed_mask)
 
     return destroyed_mask
+
+def scale_mask(mask):
+    # Converts to float
+    mask = mask.astype(np.float32)
+    # This turns classes from ints into a decimal between 0 and 1 (there are 15 classes from (0 - 14))
+    mask[:, :, 0] = mask[:, :, 0] / 14
+    # This turnes it into a binary mask for hair
+    mask[:, :, 1] = mask[:, :, 1] / 10
+
+    return mask
+
+# Reverts scale from [0, 1] to its right class
+# Input: Batched input shape = [n, :, :, :]
+# RGB axis can be either 1st or 3rd axis
+def get_visual_from_scaled_mask(masks):
+    HAIR_ACCEPT_THRESHOLD = 0.75
     
+    rgb_axis_first = masks.shape[1] == 2
+
+    if rgb_axis_first:
+        if isinstance(masks, np.ndarray):
+            masks = np.transpose(masks, (0, 2, 3, 1))
+        elif isinstance(masks, torch.Tensor):
+            masks = masks.permute((0, 2, 3, 1))
             
+    # Rescales classes (there are 15 classes from (0 - 14))
+    masks[:, :, :, 0] = masks[:, :, :, 0] * 14
+    # Rescales hair dimesntion only acceptings a threshold
+    if isinstance(masks, np.ndarray):
+        masks[:, :, :, 1] = np.where(masks[:, :, :, 1] > HAIR_ACCEPT_THRESHOLD, 10, 0)
+    elif isinstance(masks, torch.Tensor):
+        masks[:, :, :, 1] = torch.where(masks[:, :, :, 1] > HAIR_ACCEPT_THRESHOLD, 10, 0)
+
+    images = np.zeros((masks.shape[0], masks.shape[1], masks.shape[2], 3))
+    
+    for i in range(masks.shape[0]):
+        images[i] = vis_seg(get_vis_mask(masks[i]))
+
+    if rgb_axis_first:
+        images = np.transpose(images, (0, 3, 1, 2))
+
+    if isinstance(masks, torch.Tensor):
+        images = torch.tensor(images)
+
+    return images
+
+
 def test_function(test_amount=100, visualize=True):
     if not os.path.isdir(DESTROYED_DATA_ROOT):
         os.makedirs(DESTROYED_DATA_ROOT)

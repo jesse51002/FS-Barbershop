@@ -69,7 +69,7 @@
             "name": ["models.model", "Palette"], // import Model() class / function(not recommend) from models.model.py (default is [models.model.py])
             "args": {
                 "sample_num": 8, // process of each image
-                "task": "inpainting",
+                "task": "mask_fixing",
                 "ema_scheduler": {
                     "ema_start": 1,
                     "ema_iter": 1,
@@ -89,12 +89,12 @@
                     "unet": {
                         "in_channel": 4,
                         "out_channel": 2,
-                        "inner_channel": 64,
+                        "inner_channel": 32, // 64,
                         "channel_mults": [
                             1,
                             2,
-                            4,
-                            8
+                            4
+                            // 8
                         ],
                         "attn_res": [
                             // 32,

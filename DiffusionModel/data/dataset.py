@@ -11,7 +11,7 @@ import cv2
 
 from .util.mask import (bbox2mask, brush_stroke_mask, get_irregular_mask, random_bbox, random_cropping_bbox)
 
-from mask_destroyer import create_multi_dim_mask, destroy_mask
+from mask_destroyer import create_multi_dim_mask, destroy_mask, scale_mask
 
 IMG_EXTENSIONS = [
     '.jpg', '.JPG', '.jpeg', '.JPEG',
@@ -65,6 +65,7 @@ class MaskFixingDataset(data.Dataset):
     
         multi_dim_mask = self.preprocess_mask(multi_dim_mask)
         destroyed_mask = self.preprocess_mask(destroyed_mask)
+
         
         mask = torch.zeros_like(destroyed_mask)
         mask[0] = torch.where(destroyed_mask[0] != 0, 0, 1)
@@ -82,13 +83,7 @@ class MaskFixingDataset(data.Dataset):
         return ret
 
     def preprocess_mask(self, mask):
-        # Converts to float
-        mask = mask.astype(np.float32)
-        # This turns classes from ints into a decimal between 0 and 1 (there are 15 classes from (0 - 14))
-        mask[0] = mask[0] / 14
-        # This turnes it into a binary mask for hair
-        mask[1] = mask[1] / 10
-
+        mask = scale_mask(mask)
         # resizes and converts to tensor
         mask = self.tfs(mask)
         return mask

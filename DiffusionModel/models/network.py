@@ -93,6 +93,7 @@ class Network(BaseNetwork):
         
         y_t = default(y_t, lambda: torch.randn_like(y_cond))
         ret_arr = y_t
+        print("")
         for i in tqdm(reversed(range(0, self.num_timesteps)), desc='sampling loop time step', total=self.num_timesteps):
             t = torch.full((b,), i, device=y_cond.device, dtype=torch.long)
             y_t = self.p_sample(y_t, t, y_cond=y_cond)
