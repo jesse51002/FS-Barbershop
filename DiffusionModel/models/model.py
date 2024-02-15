@@ -7,7 +7,7 @@ from core.base_model import BaseModel
 from core.logger import LogTracker
 import copy
 
-from mask_destroyer import get_visual_from_scaled_mask
+from mask_destroyer import get_visual_from_channel_sep_mask
 
 
 class EMA():
@@ -81,8 +81,8 @@ class Palette(BaseModel):
             }
         else:
             dict = {
-                'gt_image': get_visual_from_scaled_mask(self.gt_image.detach()[:].float().cpu()),
-                'cond_image': get_visual_from_scaled_mask(self.cond_image.detach()[:].float().cpu()),
+                'gt_image': get_visual_from_channel_sep_mask(self.gt_image.detach()[:].float().cpu()),
+                'cond_image': get_visual_from_channel_sep_mask(self.cond_image.detach()[:].float().cpu()),
             }
             
         if self.task in ['inpainting','uncropping','mask_fixing']:
@@ -94,7 +94,7 @@ class Palette(BaseModel):
             else:
                 dict.update({
                     # 'mask': self.mask.detach()[:].float().cpu(),
-                    'mask_image': get_visual_from_scaled_mask((self.mask_image)),
+                    'mask_image': get_visual_from_channel_sep_mask((self.mask_image)),
                 })
         if phase != 'train':
             if self.task != "mask_fixing":
@@ -103,7 +103,7 @@ class Palette(BaseModel):
                 })
             else:
                 dict.update({
-                    'output': get_visual_from_scaled_mask(self.output.detach()[:].float().cpu())
+                    'output': get_visual_from_channel_sep_mask(self.output.detach()[:].float().cpu())
                 })
                 
         return dict
@@ -113,17 +113,26 @@ class Palette(BaseModel):
         ret_result = []
         for idx in range(self.batch_size):
             ret_path.append('GT_{}'.format(self.path[idx]))
-            ret_result.append(self.gt_image[idx].detach().float().cpu())
+            if self.task != "mask_fixing":
+                ret_result.append(self.gt_image[idx].detach().float().cpu())
+            else:
+                ret_result.append(get_visual_from_channel_sep_mask(self.gt_image[idx].detach().float().cpu()))
             
             ret_path.append('Process_{}'.format(self.path[idx]))
-            ret_result.append(self.visuals[idx::self.batch_size].detach().float().cpu())
+            if self.task != "mask_fixing":
+                ret_result.append(self.visuals[idx::self.batch_size].detach().float().cpu())
+            else:
+                ret_result.append(get_visual_from_channel_sep_mask(self.visuals[idx::self.batch_size].detach().float().cpu()))
             
             ret_path.append('Out_{}'.format(self.path[idx]))
-            ret_result.append(self.visuals[idx-self.batch_size].detach().float().cpu())
+            if self.task != "mask_fixing":
+                ret_result.append(self.visuals[idx-self.batch_size].detach().float().cpu())
+            else:
+                ret_result.append(get_visual_from_channel_sep_mask(self.visuals[idx-self.batch_size].detach().float().cpu()))
         
         if self.task in ['inpainting','uncropping','mask_fixing']:
             ret_path.extend(['Mask_{}'.format(name) for name in self.path])
-            ret_result.extend(self.mask_image)
+            ret_result.extend(get_visual_from_channel_sep_mask(self.mask_image))
 
         self.results_dict = self.results_dict._replace(name=ret_path, result=ret_result)
         return self.results_dict._asdict()
@@ -173,7 +182,7 @@ class Palette(BaseModel):
                             y_0=self.gt_image, mask=self.mask, sample_num=self.sample_num)
                     else:
                         self.output, self.visuals = self.netG.restoration(self.cond_image, sample_num=self.sample_num)
-                    
+                
                 self.iter += self.batch_size
                 self.writer.set_iter(self.epoch, self.iter, phase='val')
 
@@ -184,7 +193,7 @@ class Palette(BaseModel):
                     self.writer.add_scalar(key, value)
                 for key, value in self.get_current_visuals(phase='val').items():
                     self.writer.add_images(key, value)
-                self.writer.save_images(self.save_current_results())
+                self.writer.save_images(self.save_current_results(), process=self.task != "mask_fixing")
 
         return self.val_metrics.result()
 
@@ -194,6 +203,7 @@ class Palette(BaseModel):
         with torch.no_grad():
             for phase_data in tqdm.tqdm(self.phase_loader):
                 self.set_input(phase_data)
+
                 if self.opt['distributed']:
                     if self.task in ['inpainting','uncropping','mask_fixing']:
                         self.output, self.visuals = self.netG.module.restoration(self.cond_image, y_t=self.cond_image, 
@@ -206,7 +216,7 @@ class Palette(BaseModel):
                             y_0=self.gt_image, mask=self.mask, sample_num=self.sample_num)
                     else:
                         self.output, self.visuals = self.netG.restoration(self.cond_image, sample_num=self.sample_num)
-                        
+                
                 self.iter += self.batch_size
                 self.writer.set_iter(self.epoch, self.iter, phase='test')
                 for met in self.metrics:
@@ -216,7 +226,7 @@ class Palette(BaseModel):
                     self.writer.add_scalar(key, value)
                 for key, value in self.get_current_visuals(phase='test').items():
                     self.writer.add_images(key, value)
-                self.writer.save_images(self.save_current_results())
+                self.writer.save_images(self.save_current_results(), process=self.task != "mask_fixing")
         
         test_log = self.test_metrics.result()
         ''' save logged informations into log dict ''' 

@@ -41,7 +41,6 @@ def create_multi_dim_mask(mask):
     
     # Remvoes third axis
     multi_dim_mask = np.zeros((mask.shape[0], mask.shape[1], 2))
-        
     # makes all axis zeros second axis
     multi_dim_mask[:,:,0] = mask
     # Moves the hair mask to 2nd channel
@@ -82,49 +81,66 @@ def destroy_mask(multi_dim_mask):
 
     return destroyed_mask
 
-def scale_mask(mask):
-    # Converts to float
-    mask = mask.astype(np.float32)
-    # This turns classes from ints into a decimal between 0 and 1 (there are 15 classes from (0 - 14))
-    mask[:, :, 0] = mask[:, :, 0] / 14
-    # This turnes it into a binary mask for hair
-    mask[:, :, 1] = mask[:, :, 1] / 10
+def create_channel_sep_mask(multi_dim_mask):
+    
+    channel_sep_mask = np.zeros((multi_dim_mask.shape[0], multi_dim_mask.shape[1], 15))
 
-    return mask
+    # Set every other mask
+    for i in range(15):
+        channel_sep_mask[multi_dim_mask[:,:, 0] == i, i] = 1
+
+    # Sets hair channel
+    channel_sep_mask[:,:, 10] = np.where(multi_dim_mask[:, :, 1] != 0 , 1, 0)
+    channel_sep_mask[channel_sep_mask[:,:, 10] != 0, 0] = 0
+    
+    return channel_sep_mask
+
 
 # Reverts scale from [0, 1] to its right class
 # Input: Batched input shape = [n, :, :, :]
 # RGB axis can be either 1st or 3rd axis
-def get_visual_from_scaled_mask(masks):
-    HAIR_ACCEPT_THRESHOLD = 0.75
+def get_visual_from_channel_sep_mask(masks):
+    # HAIR_ACCEPT_THRESHOLD = 0.75
+    batched = len(masks.shape) == 4
+
+    if not batched:
+        if isinstance(masks, np.ndarray):
+            masks = np.expand_dims(masks, axis=0)
+        elif isinstance(masks, torch.Tensor):
+            masks = masks.unsqueeze(0)
     
-    rgb_axis_first = masks.shape[1] == 2
+    rgb_axis_first = masks.shape[1] == 15
 
     if rgb_axis_first:
         if isinstance(masks, np.ndarray):
             masks = np.transpose(masks, (0, 2, 3, 1))
+            masks = np.minimum(masks, np.ones_like(masks))
+            masks = np.maximum(masks, np.zeros_like(masks))
         elif isinstance(masks, torch.Tensor):
             masks = masks.permute((0, 2, 3, 1))
-            
-    # Rescales classes (there are 15 classes from (0 - 14))
-    masks[:, :, :, 0] = masks[:, :, :, 0] * 14
-    # Rescales hair dimesntion only acceptings a threshold
-    if isinstance(masks, np.ndarray):
-        masks[:, :, :, 1] = np.where(masks[:, :, :, 1] > HAIR_ACCEPT_THRESHOLD, 10, 0)
-    elif isinstance(masks, torch.Tensor):
-        masks[:, :, :, 1] = torch.where(masks[:, :, :, 1] > HAIR_ACCEPT_THRESHOLD, 10, 0)
+            masks = torch.minimum(masks, torch.ones_like(masks))
+            masks = torch.maximum(masks, torch.zeros_like(masks))
+
+    masks = masks.argmax(axis=3)
+
+    if not os.path.isdir("./test"):
+        os.makedirs("./test")
+        
 
     images = np.zeros((masks.shape[0], masks.shape[1], masks.shape[2], 3))
-    
-    for i in range(masks.shape[0]):
-        images[i] = vis_seg(get_vis_mask(masks[i]))
 
+    for i in range(masks.shape[0]):
+        images[i] = vis_seg(masks[i])
+    
     if rgb_axis_first:
         images = np.transpose(images, (0, 3, 1, 2))
 
+    if not batched:
+        images = images[0]
+        
     if isinstance(masks, torch.Tensor):
         images = torch.tensor(images)
-
+    
     return images
 
 

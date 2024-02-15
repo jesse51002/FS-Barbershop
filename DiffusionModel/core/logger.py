@@ -98,7 +98,7 @@ class VisualWriter():
         self.epoch = epoch
         self.iter = iter
 
-    def save_images(self, results):
+    def save_images(self, results, process=True):
         result_path = os.path.join(self.result_dir, self.phase)
         os.makedirs(result_path, exist_ok=True)
         result_path = os.path.join(result_path, str(self.epoch))
@@ -107,7 +107,7 @@ class VisualWriter():
         ''' get names and corresponding images from results[OrderedDict] '''
         try:
             names = results['name']
-            outputs = Util.postprocess(results['result'])
+            outputs = Util.postprocess(results['result'], process=process)
             for i in range(len(names)): 
                 Image.fromarray(outputs[i]).save(os.path.join(result_path, names[i]))
         except:

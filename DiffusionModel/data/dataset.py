@@ -11,7 +11,7 @@ import cv2
 
 from .util.mask import (bbox2mask, brush_stroke_mask, get_irregular_mask, random_bbox, random_cropping_bbox)
 
-from mask_destroyer import create_multi_dim_mask, destroy_mask, scale_mask
+from mask_destroyer import create_multi_dim_mask, destroy_mask, create_channel_sep_mask
 
 IMG_EXTENSIONS = [
     '.jpg', '.JPG', '.jpeg', '.JPEG',
@@ -62,17 +62,21 @@ class MaskFixingDataset(data.Dataset):
     
         multi_dim_mask = create_multi_dim_mask(base_mask)
         destroyed_mask = destroy_mask(multi_dim_mask)
-    
+
+        flat_mask = np.where(destroyed_mask[:, :, 0] != 0, 0, 1)
+            
         multi_dim_mask = self.preprocess_mask(multi_dim_mask)
         destroyed_mask = self.preprocess_mask(destroyed_mask)
 
-        
+        flat_mask = torch.tensor(flat_mask)
         mask = torch.zeros_like(destroyed_mask)
-        mask[0] = torch.where(destroyed_mask[0] != 0, 0, 1)
-        mask[1] = torch.ones_like(destroyed_mask[1])
+        for i in range(destroyed_mask.shape[0]):
+            mask[i] = flat_mask
+        mask[10] = torch.ones_like(flat_mask)
         
-        cond_image = torch.where(mask == 1, torch.randn_like(destroyed_mask), destroyed_mask)
-        
+            
+        cond_image = torch.where(mask == 1, torch.rand_like(destroyed_mask), destroyed_mask)
+
         mask_img = destroyed_mask
 
         ret['gt_image'] = multi_dim_mask
@@ -83,9 +87,9 @@ class MaskFixingDataset(data.Dataset):
         return ret
 
     def preprocess_mask(self, mask):
-        mask = scale_mask(mask)
+        mask = create_channel_sep_mask(mask)
         # resizes and converts to tensor
-        mask = self.tfs(mask)
+        mask = self.tfs(mask).to(torch.float32)
         return mask
         
 

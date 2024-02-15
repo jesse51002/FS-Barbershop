@@ -10,7 +10,7 @@
         "tb_logger": "tb_logger", // path of tensorboard logger
         "results": "results",
         "checkpoint": "checkpoint",
-        //"resume_state": "experiments/train_inpainting_places2_220429_160230/checkpoint/8" 
+        //"resume_state": "experiments/train_mask_fixing_240214_032407/checkpoint/37" 
         "resume_state": null // ex: 100, loading .state  and .pth from given epoch and iteration
     },
 
@@ -29,7 +29,7 @@
             "dataloader":{
                 "validation_split": 2, // percent or number 
                 "args":{ // arguments to initialize train_dataloader
-                    "batch_size": 5, // batch size in each gpu
+                    "batch_size": 8, // batch size in each gpu
                     "num_workers": 1,
                     "shuffle": true,
                     "pin_memory": true,
@@ -87,14 +87,14 @@
                     "init_type": "kaiming", // method can be [normal | xavier| xavier_uniform | kaiming | orthogonal], default is kaiming
                     "module_name": "guided_diffusion", // sr3 | guided_diffusion
                     "unet": {
-                        "in_channel": 4,
-                        "out_channel": 2,
-                        "inner_channel": 32, // 64,
+                        "in_channel": 30,
+                        "out_channel": 15,
+                        "inner_channel": 64,
                         "channel_mults": [
                             1,
                             2,
-                            4
-                            // 8
+                            4,
+                            8
                         ],
                         "attn_res": [
                             // 32,
