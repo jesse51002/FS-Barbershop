@@ -40,9 +40,8 @@ WORKDIR /root
 ENV TORCH_CUDA_ARCH_LIST="7.5;8.0;8.6+PTX;8.9;9.0"
 
 RUN pip3 install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu121
-RUN pip install dlib cmake boto3 ftfy gdown imageio-ffmpeg matplotlib opencv-python-headless pandas scipy scikit-learn scikit-image sixdrepnet supervision timm tk ultralytics typing_extensions
+RUN pip install dlib cmake boto3 ftfy gdown imageio-ffmpeg matplotlib opencv-python-headless pandas scipy scikit-learn scikit-image sixdrepnet supervision timm tk ultralytics typing_extensions ipython
 RUN pip install git+https://github.com/openai/CLIP.git
-RUN pip install ipython
 
 RUN git clone https://github.com/tejaspinjala/cosmetic-previewer-using-GANs.git
 WORKDIR /root/cosmetic-previewer-using-GANs/GanModel
