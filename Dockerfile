@@ -9,8 +9,7 @@ RUN apt update && apt install --yes wget ssh git git-lfs vim build-essential gcc
 RUN apt-get remove --purge --yes --allow-change-held-packages "*cuda*" "*cublas*" "*cufft*" "*cufile*" "*curand*" "*cusolver*" "*cusparse*" "*npp*" "*nvjpeg*"
 RUN wget https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2204/x86_64/cuda-keyring_1.0-1_all.deb
 RUN dpkg -i cuda-keyring_1.0-1_all.deb
-RUN apt install --yes cuda
-
+RUN DEBIAN_FRONTEND=noninteractive apt install --yes cuda
 
 # Fixes mount error
 RUN rm -rf umount /usr/lib/x86_64-linux-gnu/libcuda.so.1 && rm -rf /usr/lib/x86_64-linux-gnu/libcuda.so.1
