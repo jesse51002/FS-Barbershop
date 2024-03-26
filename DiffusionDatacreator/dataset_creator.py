@@ -15,8 +15,8 @@ import torch
 from huggingface_hub import hf_hub_download
 from ultralytics import YOLO
 
-MUTLIPROCESS = False
-PROCESS_COUNT = 3
+MUTLIPROCESS = True
+PROCESS_COUNT = 4
 
 SIZE_FACE_MULT = 3.5
 ANGLE_FACE_MULT = 2
@@ -186,14 +186,20 @@ def create_mask(img_pth, mask_pth):
 
     # Adds hair
     result_mask[bounded_mask == body_parse_classes["hair"]] = 10
+    result_mask[bounded_mask == body_parse_classes["sunglass"]] = 13
 
     # Adds the rest body from the body parse mask
-    result_mask[(bounded_mask != body_parse_classes["face"]) & (bounded_mask != body_parse_classes["background"])] = 14
+    result_mask[
+        (bounded_mask != body_parse_classes["face"]) & 
+        (bounded_mask != body_parse_classes["sunglass"]) & 
+        (bounded_mask != body_parse_classes["background"]) &
+        (bounded_mask != body_parse_classes["hair"])
+    ] = 14
     # Adds face segmentation features
     # Doesnt add hair since we already have hair groundtruth
     result_mask = np.where(
         (
-             (result_mask == 0) & ((bounded_mask == body_parse_classes["face"]) | (bounded_mask == body_parse_classes["sunglass"]) )
+             (result_mask == 0) # & ((bounded_mask == body_parse_classes["face"]) | (bounded_mask == body_parse_classes["sunglass"]) )
         ), 
         face_seg, 
         result_mask
@@ -213,11 +219,12 @@ def create_mask(img_pth, mask_pth):
     # Adds body below face to the mask
     result_mask = np.where((bounded_mask_below_nose != 0) & (result_mask == 0), 14, result_mask)
 
+    """
     # Fills in face areas that might've been missed
     bounded_mask_above_nose = bounded_mask.copy()
     bounded_mask_above_nose[max_nose:] = 0
     result_mask = np.where((bounded_mask_above_nose != 0) & (result_mask == 0), 1, result_mask)
-    
+    """
     
     return bounded_image.astype(np.uint8), bounded_mask.astype(np.uint8),result_mask.astype(np.uint8)
 
@@ -282,6 +289,7 @@ def parse_names(names):
 
         
         plt.savefig(os.path.join(PARSED_MASKS_VIS, mask_file_name))
+        plt.close()
         
         print(f"Finished creating data: {count}")
         count += 1

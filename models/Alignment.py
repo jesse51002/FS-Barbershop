@@ -95,6 +95,75 @@ class Alignment(nn.Module):
         new_target_final = torch.where(OB_region, torch.from_numpy(new_target_inpainted), new_target)
         target_mask = new_target_final.unsqueeze(0).long().cuda()
 
+        # Adding temporaily inorder to fix mask issues --------------------------------------------------------------------------
+
+        ############################# add auto-inpainting
+
+
+        optimizer_align, latent_align = self.setup_align_optimizer()
+        latent_end = latent_align[:, 6:, :].clone().detach()
+
+        pbar = tqdm(range(80), desc='Create Target Mask Step1', leave=False)
+        for step in pbar:
+            optimizer_align.zero_grad()
+            latent_in = torch.cat([latent_align[:, :6, :], latent_end], dim=1)
+            down_seg, _ = self.create_down_seg(latent_in)
+
+            loss_dict = {}
+
+            if sign == 'realistic':
+                ce_loss = self.loss_builder.cross_entropy_loss_wo_background(down_seg, target_mask)
+                ce_loss += self.loss_builder.cross_entropy_loss_only_background(down_seg, ggg)
+            else:
+                ce_loss = self.loss_builder.cross_entropy_loss(down_seg, target_mask)
+
+
+            loss_dict["ce_loss"] = ce_loss.item()
+            loss = ce_loss
+
+
+            loss.backward()
+            optimizer_align.step()
+
+
+        gen_seg_target = torch.argmax(down_seg, dim=1).long()
+        free_mask = hair_mask1 * (1 - hair_mask2)
+        target_mask = torch.where(free_mask==1, gen_seg_target, target_mask)
+        previouse_target_mask = target_mask.clone().detach()
+
+        ############################################
+
+        target_mask = torch.where(OB_region.to(device).unsqueeze(0), torch.zeros_like(target_mask), target_mask)
+        optimizer_align, latent_align = self.setup_align_optimizer()
+        latent_end = latent_align[:, 6:, :].clone().detach()
+
+        pbar = tqdm(range(80), desc='Create Target Mask Step2', leave=False)
+        for step in pbar:
+            optimizer_align.zero_grad()
+            latent_in = torch.cat([latent_align[:, :6, :], latent_end], dim=1)
+            down_seg, _ = self.create_down_seg(latent_in)
+
+            loss_dict = {}
+
+            if sign == 'realistic':
+                ce_loss = self.loss_builder.cross_entropy_loss_wo_background(down_seg, target_mask)
+                ce_loss += self.loss_builder.cross_entropy_loss_only_background(down_seg, ggg)
+            else:
+                ce_loss = self.loss_builder.cross_entropy_loss(down_seg, target_mask)
+
+            loss_dict["ce_loss"] = ce_loss.item()
+            loss = ce_loss
+
+            loss.backward()
+            optimizer_align.step()
+
+
+        gen_seg_target = torch.argmax(down_seg, dim=1).long()
+        # free_mask = hair_mask1 * (1 - hair_mask2)
+        # target_mask = torch.where((free_mask == 1) * (gen_seg_target!=0), gen_seg_target, previouse_target_mask)
+        target_mask = torch.where((OB_region.to(device).unsqueeze(0)) * (gen_seg_target != 0), gen_seg_target, previouse_target_mask)
+
+        # ------------------------------------------------------
         
         # This is for a loss that also takes into account the percentage of the area being hair
         # This will help with hair that fades in and out of the background (prolly)

@@ -36,7 +36,7 @@ import torch
 face_parser = RTNetPredictor(
         device="cuda", ckpt="./farl_segmentation/ibug/face_parsing/rtnet/weights/rtnet50-fcn-14.torch", encoder="rtnet50", decoder="fcn", num_classes=14)
 
-MIN_CONFIDENCE = 0.5
+MIN_CONFIDENCE = 0.25
 # download model
 model_path = hf_hub_download(repo_id="arnabdhar/YOLOv8-Face-Detection", filename="model.pt")
 # load model
@@ -45,7 +45,7 @@ model = YOLO(model_path, task="detect")
 # inference
 def output_bb(img, confidence = MIN_CONFIDENCE): 
     output = model(img, verbose=False)[0]
-    
+
     cleaned_boxes = []
     for box in output.boxes.data:
         if box[4] > confidence:
@@ -55,8 +55,8 @@ def output_bb(img, confidence = MIN_CONFIDENCE):
                 int(box[2]), # x2
                 int(box[3]), # y2
             ])
-    
-    
+
+
     return np.array(cleaned_boxes)
 
 def get_segmentation(img, bbox):    
@@ -84,17 +84,6 @@ if __name__ == "__main__":
         if len(bb) == 0:
             print(f"No face found for {img_name}")
             continue
-    
+
         seg = get_segmentation(img, bb).argmax(1).detach().cpu().numpy()[0]
         save_original_mask(img_pth, "./output/masks", seg)
-
-
-    
-
-
-    
-    
-
-
-    
-    

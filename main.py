@@ -130,7 +130,7 @@ if __name__ == "__main__":
     parser.add_argument('--hair_lambda', type=str, default=1.0, help='')
     parser.add_argument('--blend_steps', type=int, default=400, help='')
 
-
+    parser.add_argument("--local-rank", type=int, default=0)
 
 
     args = parser.parse_args()

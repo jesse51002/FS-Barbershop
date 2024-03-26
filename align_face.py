@@ -36,7 +36,7 @@ f=open_url("https://drive.google.com/uc?id=1huhv8PYpNNKbGCLOaYUjOgR1pY5pmbJx", c
 print(f)
 predictor = dlib.shape_predictor(f)
 
-already_exists = [x.split(".")[0] for x in os.listdir(args.output_dir)]
+already_exists = [x.split(".")[0] for x in os.listdir(args.output_dir)] 
 
 for im in Path(args.unprocessed_dir).glob("*.*"):
     str_path = str(im)

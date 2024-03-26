@@ -136,5 +136,8 @@ wandb/
 *.pt
 .idea
 cache
-pretrained_models/seg.pth
+pretrained_models/*
 output/
+cuda_12.1.0_530.30.02_linux.run
+input/
+unprocessed/

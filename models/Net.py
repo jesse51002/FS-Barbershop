@@ -1,12 +1,17 @@
+import sys
+sys.path.insert(0,'./')
+
+import time
 import torch
 from torch import nn
 from models.stylegan2.model import Generator
 import numpy as np
 import os
 from utils.model_utils import download_weight
+from torch.nn.parallel import DistributedDataParallel
+
 
 class Net(nn.Module):
-
     def __init__(self, opts):
         super(Net, self).__init__()
         self.opts = opts
@@ -14,7 +19,6 @@ class Net(nn.Module):
         self.cal_layer_num()
         self.load_weights()
         self.load_PCA_model()
-
 
     def load_weights(self):
         if not os.path.exists(self.opts.ckpt):
@@ -32,7 +36,6 @@ class Net(nn.Module):
         for param in self.generator.parameters():
             param.requires_grad = False
         self.generator.eval()
-
 
     def build_PCA_model(self, PCA_path):
 
@@ -98,4 +101,27 @@ class Net(nn.Module):
     def cal_l_F(self, latent_F, F_init):
         return self.opts.l_F_lambda * (latent_F - F_init).pow(2).mean()
 
+
+if __name__ == "__main__":
+    class opt:
+        def __init__(self):
+            self.size = 1024
+            self.latent = 512
+            self.channel_multiplier = 2
+            self.n_mlp = 8
+            self.ckpt = 'pretrained_models/ffhq.pt'
+            self.device = 'cuda'
+    
+    net = Net(opt())
+
+    latent = [net.latent_avg.unsqueeze(0).clone().cuda()]
+    
+    start = time.time()
+    for i in range(21):
+        if i == 1:
+            print("Starting image gen")
+            start = time.time()
+        gen_im, _ = net.generator(latent, input_is_latent=True, return_latents=False, start_layer=0, end_layer=8)
+    
+    print("Finsihed image gen in", (time.time() - start) / 20)
 

@@ -4,7 +4,7 @@ echo "https://medium.com/@yulin_li/how-to-update-cuda-and-cudnn-on-ubuntu-18-04-
 echo "This only has to be done the first time torch is being installed into the conda env"
 # sudo apt-get --purge remove "*cuda*" "*cublas*" "*cufft*" "*cufile*" "*curand*" "*cusolver*" "*cusparse*" "*gds-tools*" "*npp*" "*nvjpeg*" "nsight*"
 # wget https://developer.download.nvidia.com/compute/cuda/11.8.0/local_installers/cuda_11.8.0_520.61.05_linux.run
-# sudo sh cuda_11.8.0_520.61.05_linux.run
+# sudo sh cuda_12.1.0_530.30.02_linux.run
 
 
 # Fixes open cv issues on aws sagemaker instance
@@ -15,7 +15,7 @@ pip install opencv-python-headless
 pip install --upgrade --no-cache-dir gdown
 
 # Fixes dlib issues
-conda install gxx_linux-64=11.8
-conda install -c conda-forge libstdcxx-ng
+#conda install gxx_linux-64=11.8
+# conda install -c conda-forge libstdcxx-ng
 pip install cmake
 pip install dlib
