@@ -113,7 +113,6 @@ class Alignment(nn.Module):
                 hair_move_point = left_hair_distance2 + img1_left_points[img1_i, 0]
                 
                 add_amount = hair_move_point - hair_left_points[current_y]
-                print(hair_left_points[current_y], hair_move_point, add_amount)
                 if add_amount > 0:
                     hair_mask2[:, current_y, hair_left_points[current_y]: hair_left_points[current_y] + add_amount] = 1
                 else:

@@ -90,7 +90,7 @@ class human_matt_model(Model):
         
         
 if __name__ == "__main__":
-    path = "input/face/braids2.png"
+    path = "input/face/werewolf.png"
     image = Image.open(path)
     np_image = np.array(image.convert('RGB'))
     torch_img = torch.tensor(np_image).permute(2, 0, 1).unsqueeze(0)

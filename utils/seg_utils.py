@@ -39,8 +39,8 @@ def expand_face_mask(face_seg, human_seg):
     # Adds uncaught strands on hair
     hair_mask = np.where(face_seg == CLASSES["hair"], 1, 0)
     for i in range(DILATION_AMOUNT):
-        hair_mask = binary_dilation(hair_mask, np.ones((10, 10)))
-    face_seg = np.where((hair_mask == 1) & (human_seg == 1) & (face_seg == 0), CLASSES["hair"], face_seg) 
+        hair_mask = binary_dilation(hair_mask, np.ones((20, 20)))
+    face_seg = np.where((hair_mask == 1) & (human_seg > 0.1) & (face_seg == 0), CLASSES["hair"], face_seg)
     
     # ---------
 
