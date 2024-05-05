@@ -10,15 +10,17 @@ import time
 
 from PIL import Image
 
-
+from models.SegMaker import SegMaker
 from models.Embedding import Embedding
 from models.Alignment import Alignment
 from models.Blending import Blending
+from models.FacerParsing import FacerModel, FacerKeypoints, FacerDetection
+from models.p3m_matting.inference import human_matt_model
+from models.Net import Net
 
 def main(args):
     # torch.autograd.set_detect_anomaly(True)
     
-    ii2s = Embedding(args)
     #
     # ##### Option 1: input folder
     # # ii2s.invert_images_in_W()
@@ -40,11 +42,24 @@ def main(args):
 
     grand_start_time = time.time()
     
-    
     im_set = {im_path1, im_path2, im_path3}
+
+    net = Net(args)
+    face_detector = FacerDetection()
+    keypoint_model = FacerKeypoints(face_detector=face_detector, device=args.device)
+    facer = FacerModel(face_detector=face_detector, device=args.device)
+    background_remover = human_matt_model(device=args.device)
+    
+    print("Starting segmentor")
+    start = time.time()
+    segmentor = SegMaker(args, facer=facer, background_remover=background_remover, keypoint_model=keypoint_model)
+    segmentor.create_segmentations(im_path1, im_path2, im_path3)
+    print(f"segmentor {time.time() - start}")
+    
     print("Starting ai space creation")
     start = time.time()
-
+    ii2s = Embedding(args, net=net)
+    
     print("Invert in W")
     ii2s.invert_images_in_W([*im_set])
     print("Invert in FS")
@@ -53,7 +68,7 @@ def main(args):
 
     print("Starting alignment")
     start = time.time()
-    align = Alignment(args)
+    align = Alignment(args, net=net)
     align.align_images(im_path1, im_path2, sign=args.sign, align_more_region=False, smooth=args.smooth)
     if im_path2 != im_path3:
         align.align_images(im_path1, im_path3, sign=args.sign, align_more_region=False, smooth=args.smooth, save_intermediate=False)
@@ -61,7 +76,7 @@ def main(args):
 
     print("Starting blending")
     start = time.time()
-    blend = Blending(args)
+    blend = Blending(args, net=net, facer=facer, background_remover=background_remover)
     blend.blend_images(im_path1, im_path2, im_path3, sign=args.sign)
     print(f"blending took {time.time() - start}")
 

@@ -8,6 +8,7 @@ from tqdm import tqdm
 import PIL
 import torchvision
 from models.face_parsing.model import BiSeNet, seg_mean, seg_std
+from models.face_parsing.classes import CLASSES
 from models.optimizer.ClampOptimizer import ClampOptimizer
 from losses.blend_loss import BlendLossBuilder
 import torch.nn.functional as F
@@ -16,15 +17,15 @@ from utils.data_utils import load_FS_latent
 from utils.data_utils import cuda_unsqueeze
 from utils.image_utils import load_image, dilate_erosion_mask_path, dilate_erosion_mask_tensor
 from utils.model_utils import download_weight
+from utils.seg_utils import expand_face_mask
+from models.FacerParsing import FacerModel, facer_to_bisnet
+from models.p3m_matting.inference import human_matt_model
 
 toPIL = torchvision.transforms.ToPILImage()
 
 
-
-
 class Blending(nn.Module):
-
-    def __init__(self, opts, net=None):
+    def __init__(self, opts, net=None, facer=None, background_remover=None):
         super(Blending, self).__init__()
         self.opts = opts
         if not net:
@@ -32,14 +33,14 @@ class Blending(nn.Module):
         else:
             self.net = net
 
+        self.facer = facer
+        self.background_remover = background_remover
+
         self.load_segmentation_network()
         self.load_downsampling()
         self.setup_blend_loss_builder()
-
-
-
+    
     def load_downsampling(self):
-
         self.downsample = BicubicDownSample(factor=self.opts.size // 512)
         self.downsample_256 = BicubicDownSample(factor=self.opts.size // 256)
 
@@ -54,7 +55,6 @@ class Blending(nn.Module):
             param.requires_grad = False
         self.seg.eval()
 
-
     def setup_blend_optimizer(self):
 
         interpolation_latent = torch.zeros((18, 512), requires_grad=True, device=self.opts.device)
@@ -66,9 +66,7 @@ class Blending(nn.Module):
     def setup_blend_loss_builder(self):
         self.loss_builder = BlendLossBuilder(self.opts)
 
-
     def blend_images(self, img_path1, img_path2, img_path3, sign='realistic'):
-
         device = self.opts.device
         output_dir = self.opts.output_dir
 
@@ -79,27 +77,35 @@ class Blending(nn.Module):
         I_1 = load_image(img_path1, downsample=True).to(device).unsqueeze(0)
         I_3 = load_image(img_path3, downsample=True).to(device).unsqueeze(0)
 
-        HM_1D, _ = cuda_unsqueeze(dilate_erosion_mask_path(img_path1, self.seg), device)
-        HM_3D, HM_3E = cuda_unsqueeze(dilate_erosion_mask_path(img_path3, self.seg), device)
+        HM_1D, _ = cuda_unsqueeze(dilate_erosion_mask_path(self.opts, img_path1), device)
+        HM_3D, HM_3E = cuda_unsqueeze(dilate_erosion_mask_path(self.opts, img_path3), device)
 
         opt_blend, interpolation_latent = self.setup_blend_optimizer()
-        latent_1, latent_F_mixed = load_FS_latent(os.path.join(output_dir, 'Align_{}'.format(sign),
-                                            '{}_{}.npz'.format(im_name_1, im_name_3)),device)
-        latent_3, _ = load_FS_latent(os.path.join(output_dir, 'FS',
-                                            '{}.npz'.format(im_name_3)), device)
+        latent_1, latent_F_mixed = load_FS_latent(
+            os.path.join(output_dir, 'Align_{}'.format(sign), '{}_{}.npz'.format(im_name_1, im_name_3)),
+            device
+        )
+        latent_3, _ = load_FS_latent(
+            os.path.join(output_dir, 'FS', '{}.npz'.format(im_name_3)), device
+        )
 
         with torch.no_grad():
-            I_X, _ = self.net.generator([latent_1], input_is_latent=True, return_latents=False, start_layer=4,
-                               end_layer=8, layer_in=latent_F_mixed)
+            I_X, _ = self.net.generator(
+                [latent_1], input_is_latent=True, return_latents=False, start_layer=4,
+                end_layer=8, layer_in=latent_F_mixed
+            )
             I_X_0_1 = (I_X + 1) / 2
-            IM = (self.downsample(I_X_0_1) - seg_mean) / seg_std
-            down_seg, _, _ = self.seg(IM)
-            current_mask = torch.argmax(down_seg, dim=1).long().cpu().float()
+            IM = I_X_0_1 * 255
+            
+            seg_targets = facer_to_bisnet(self.facer.inference(IM)[0]).float().detach().cpu().numpy()
+            human_segs = self.background_remover.inference(IM)[1].detach().cpu().numpy()
+            
+            current_mask = torch.tensor(expand_face_mask(seg_targets[0], human_segs[0])).unsqueeze(0).float()
+            
             HM_X = torch.where(current_mask == 10, torch.ones_like(current_mask), torch.zeros_like(current_mask))
             HM_X = F.interpolate(HM_X.unsqueeze(0), size=(256, 256), mode='nearest').squeeze()
             HM_XD, _ = cuda_unsqueeze(dilate_erosion_mask_tensor(HM_X), device)
             target_mask = (1 - HM_1D) * (1 - HM_3D) * (1 - HM_XD)
-
 
         pbar = tqdm(range(self.opts.blend_steps), desc='Blend', leave=False)
         for step in pbar:

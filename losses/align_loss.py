@@ -4,7 +4,7 @@ from losses.style.style_loss import StyleLoss
 class AlignLossBuilder(torch.nn.Module):
 
     # Changes number of classes to classes in the segmantation model
-    def __init__(self, opt, num_classes=14):
+    def __init__(self, opt, num_classes=16):
         super(AlignLossBuilder, self).__init__()
 
         self.opt = opt
@@ -25,9 +25,7 @@ class AlignLossBuilder(torch.nn.Module):
         self.cross_entropy_wo_background = torch.nn.CrossEntropyLoss(weight=1 - tmp)
         self.cross_entropy_only_background = torch.nn.CrossEntropyLoss(weight=tmp)
 
-
         self.cosine_loss = torch.nn.CosineSimilarity(dim=0, eps=1e-6)
-
 
     def cross_entropy_loss(self, down_seg, target_mask):
         loss = self.opt.ce_lambda * self.cross_entropy(down_seg, target_mask)
@@ -40,7 +38,6 @@ class AlignLossBuilder(torch.nn.Module):
     def style_loss(self, im1, im2, mask1, mask2):
         loss = self.opt.style_lambda * self.style(im1 * mask1, im2 * mask2, mask1=mask1, mask2=mask2)
         return loss
-
 
     def cross_entropy_loss_wo_background(self, down_seg, target_mask):
         loss = self.opt.ce_lambda * self.cross_entropy_wo_background(down_seg, target_mask)
@@ -56,6 +53,6 @@ class AlignLossBuilder(torch.nn.Module):
         flat_hair_perc = torch.flatten(hair_perc)[non_zero_indexs]
         flat_target_perc = torch.flatten(target_perc)[non_zero_indexs]
         
-        loss = 1 -  self.opt.hair_perc_lambda * self.cosine_loss(flat_hair_perc, flat_target_perc)
+        loss = 1 - self.opt.hair_perc_lambda * self.cosine_loss(flat_hair_perc, flat_target_perc)
         return loss / flat_hair_perc.shape[0]
         
