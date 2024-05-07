@@ -42,14 +42,14 @@ class Embedding(nn.Module):
         }
         latent = []
         if (self.opts.tile_latent):
-            tmp = self.net.latent_avg.clone().detach().cuda()
+            tmp = self.net.latent_avg.clone().detach().to(self.opts.device[0])
             tmp.requires_grad = True
             for i in range(self.net.layer_num):
                 latent.append(tmp)
             optimizer_W = opt_dict[self.opts.opt_name]([tmp], lr=self.opts.learning_rate)
         else:
             for i in range(self.net.layer_num):
-                tmp = self.net.latent_avg.clone().detach().cuda()
+                tmp = self.net.latent_avg.clone().detach().to(self.opts.device[0])
                 tmp.requires_grad = True
                 latent.append(tmp)
             optimizer_W = opt_dict[self.opts.opt_name](latent, lr=self.opts.learning_rate)

@@ -24,13 +24,20 @@ toPIL = torchvision.transforms.ToPILImage()
 
 class Alignment(nn.Module):
 
-    def __init__(self, opts, net0=None, net1=None, seg=None):
+    def __init__(self, opts, net0=None, net1=None, seg0=None, seg1=None):
         super(Alignment, self).__init__()
         
         self.opts = opts
         self.net0 = net0
         self.net1 = net1
-        self.seg = seg
+        self.seg0 = seg0
+        self.seg1 = seg1
+        self.seg0.user_seg_mean = seg_mean.to(self.opts.device[0])
+        self.seg0.user_seg_std = seg_std.to(self.opts.device[0])
+
+        if self.opts.is_multi_gpu:
+            self.seg1.user_seg_std = seg_std.to(self.opts.device[1])
+            self.seg1.user_seg_mean = seg_mean.to(self.opts.device[1])
 
         self.load_downsampling()
         self.setup_align_loss_builder()
@@ -269,14 +276,14 @@ class Alignment(nn.Module):
 
         return optimizer_align, latent_W
 
-    def create_down_seg(self, cur_net, latent_in, face_mode=True):
+    def create_down_seg(self, cur_seg, cur_net, latent_in, face_mode=True):
         gen_im, _ = cur_net.generator([latent_in], input_is_latent=True, return_latents=False,
                                        start_layer=0, end_layer=8)
         gen_im_0_1 = (gen_im + 1) / 2
 
         # get hair mask of synthesized image
-        im = (self.downsample(gen_im_0_1) - seg_mean) / seg_std
-        down_seg, _, _ = self.seg(im)
+        im = (self.downsample(gen_im_0_1) - cur_seg.user_seg_mean) / cur_seg.user_seg_std
+        down_seg, _, _ = cur_seg(im)
         return down_seg, gen_im
         
     def dilate_erosion(self, free_mask, device, dilate_erosion=5):
@@ -329,8 +336,10 @@ class Alignment(nn.Module):
         latent_W_path_1 = os.path.join(output_dir, 'W+', f'{im_name_1}.npy')
         latent_W_path_2 = os.path.join(output_dir, 'W+', f'{im_name_2}.npy')
 
-        def gpu_0_inference(results, lock, cur_net, cur_loss_builder, cur_device):
-            optimizer_align, latent_align_1 = self.setup_align_optimizer(cur_net, latent_W_path_1)
+        def gpu_0_inference(results, lock, cur_seg, cur_net, cur_loss_builder, cur_device):
+            torch.cuda.set_device(cur_net.device)
+            
+            optimizer_align, latent_align_1 = self.setup_align_optimizer(cur_net, latent_W_path_1, device=cur_device)
 
             cur_target_mask = target_mask.to(cur_device)
             
@@ -340,7 +349,7 @@ class Alignment(nn.Module):
                 
                 optimizer_align.zero_grad()
                 latent_in = torch.cat([latent_align_1[:, :6, :], latent_1[:, 6:, :]], dim=1)
-                down_seg, _ = self.create_down_seg(cur_net, latent_in, face_mode=face_loss)
+                down_seg, _ = self.create_down_seg(cur_seg, cur_net, latent_in, face_mode=face_loss)
     
                 loss_dict = {}
                 loss = 0
@@ -361,16 +370,18 @@ class Alignment(nn.Module):
                 results["intermediate_align"] = intermediate_align
             
         ##############################################
-        def gpu_1_inference(results, lock, cur_net, cur_loss_builder, cur_device):
+        def gpu_1_inference(results, lock, cur_seg, cur_net, cur_loss_builder, cur_device):
+            torch.cuda.set_device(cur_net.device)
+            
             cur_latent_2 = latent_2.to(cur_device)
             
-            optimizer_align, latent_align_2 = self.setup_align_optimizer(cur_net, latent_W_path_2)
+            optimizer_align, latent_align_2 = self.setup_align_optimizer(cur_net, latent_W_path_2, device=cur_device)
 
             cur_target_mask = target_mask.to(cur_device)
             
             with torch.no_grad():
                 tmp_latent_in = torch.cat([latent_align_2[:, :6, :], cur_latent_2[:, 6:, :]], dim=1)
-                down_seg_tmp, I_Structure_Style_changed = self.create_down_seg(cur_net, tmp_latent_in)
+                down_seg_tmp, I_Structure_Style_changed = self.create_down_seg(cur_seg, cur_net, tmp_latent_in)
     
                 current_mask_tmp = torch.argmax(down_seg_tmp, dim=1).long()
                 HM_Structure = torch.where(current_mask_tmp == 10, torch.ones_like(current_mask_tmp),
@@ -383,7 +394,7 @@ class Alignment(nn.Module):
                 
                 optimizer_align.zero_grad()
                 latent_in = torch.cat([latent_align_2[:, :6, :], cur_latent_2[:, 6:, :]], dim=1)
-                down_seg, gen_im = self.create_down_seg(cur_net, latent_in, face_mode=face_loss)
+                down_seg, gen_im = self.create_down_seg(cur_seg, cur_net, latent_in, face_mode=face_loss)
     
                 Current_Mask = torch.argmax(down_seg, dim=1).long()
                 HM_G_512 = torch.where(Current_Mask == 10, torch.ones_like(Current_Mask),
@@ -424,11 +435,11 @@ class Alignment(nn.Module):
             print("Multi-threading aligment")
             gpu0_thread = Thread(
                 target=gpu_0_inference,
-                args=(results, threading_lock, self.net0, self.loss_builder0, self.opts.device[0])
+                args=(results, threading_lock, self.seg0, self.net0, self.loss_builder0, self.opts.device[0])
             )
             gpu1_thread = Thread(
                 target=gpu_1_inference,
-                args=(results, threading_lock, self.net1, self.loss_builder1, self.opts.device[1])
+                args=(results, threading_lock, self.seg1, self.net1, self.loss_builder1, self.opts.device[1])
             )
     
             gpu0_thread.start()
@@ -437,12 +448,12 @@ class Alignment(nn.Module):
             gpu1_thread.join()
         else:
             print("Single threading aligment")
-            gpu_0_inference(results, threading_lock, self.net0, self.loss_builder0, cur_device=self.opts.device[0])
-            gpu_1_inference(results, threading_lock, self.net0, self.loss_builder0, cur_device=self.opts.device[0])
+            gpu_0_inference(results, threading_lock, self.seg0, self.net0, self.loss_builder0, cur_device=self.opts.device[0])
+            gpu_1_inference(results, threading_lock, self.seg0, self.net0, self.loss_builder0, cur_device=self.opts.device[0])
             
         # Loads results
         intermediate_align = results["intermediate_align"]
-        latent_F_out_new = results["latent_F_out_new"]
+        latent_F_out_new = results["latent_F_out_new"].to(self.opts.device[0])
         
         free_mask = 1 - (1 - hair_mask1.unsqueeze(0)) * (1 - hair_mask_target)
 

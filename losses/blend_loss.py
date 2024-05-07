@@ -26,7 +26,7 @@ class BlendLossBuilder(torch.nn.Module):
         self.face_percept.eval()
 
         self.hair_percept = masked_lpips.PerceptualLoss(
-            model="net-lin", net="vgg", vgg_blocks=['1', '2', '3'], use_gpu=use_gpu
+            model="net-lin", net="vgg", vgg_blocks=['1', '2', '3'], use_gpu=use_gpu, gpu_ids=gpu_ids
         )
         self.hair_percept.eval()
 
