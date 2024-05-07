@@ -60,6 +60,8 @@ def main(args):
     blend = Blending(args, seg=seg0, net=net0, facer=facer, background_remover=background_remover)
     print("Finished loading models")
 
+    grand_start_time = time.time()
+    
     def inverting_gpu0():
         print("Starting ai space creation")
         torch.cuda.set_device(args.device[0])
@@ -87,7 +89,9 @@ def main(args):
     else:
         inverting_gpu0()
         segmentor_gpu1()
-        
+
+    print(f"Total presspocess/mask/embedding {(time.time() - grand_start_time)} seconds")
+    
     grand_start_time = time.time()
     
     print("Starting alignment")
@@ -102,7 +106,7 @@ def main(args):
     blend.blend_images(im_path1, im_path2, im_path3, sign=args.sign)
     print(f"blending took {time.time() - start}")
 
-    print(f"Total model loading time took {(time.time() - grand_start_time)} seconds")
+    print(f"Total align and blend time was {(time.time() - grand_start_time)} seconds")
 
 
 if __name__ == "__main__":

@@ -12,6 +12,7 @@ import torch.nn as nn
 import scipy
 import cv2
 import math
+import time
 
 from args_maker import create_parser
 
@@ -30,6 +31,8 @@ class Preprocessor(nn.Module):
         self.opts = opts
 
     def preprocess_imgs(self, imgs, target_color=155):
+        torch.cuda.set_device(self.opts.device[0])
+        
         if not os.path.isdir(self.opts.unprocessed):
             os.makedirs(self.opts.unprocessed)
 
@@ -97,7 +100,7 @@ class Preprocessor(nn.Module):
             batched_input[i] = torch_img
 
         output_imgs = np.zeros((0, 3, target_size, target_size))
-        keypoints = torch.zeros((0, 68, 2)).to(self.opts.device)
+        keypoints = torch.zeros((0, 68, 2)).to(self.keypoint_model.device)
         
         for i in range(0, len(imgs), BATCH_SIZE):
             cur_batched_input = batched_input[i: min(i+BATCH_SIZE, len(imgs))]
@@ -229,8 +232,8 @@ if __name__ == "__main__":
     from models.p3m_matting.inference import human_matt_model
     
     face_detector = FacerDetection()
-    keypoint_model = FacerKeypoints(face_detector=face_detector, device=args.device)
-    background_remover = human_matt_model(device=args.device)
+    keypoint_model = FacerKeypoints(face_detector=face_detector, device=args.device[0])
+    background_remover = human_matt_model(device=args.device[0])
     
     preprocessor = Preprocessor(args, keypoint_model=keypoint_model, background_remover=background_remover)
     
@@ -240,5 +243,9 @@ if __name__ == "__main__":
     ipynb_bitch = os.path.join(unprocessed_dir, ".ipynb_checkpoints")
     if ipynb_bitch in img_pths:
         img_pths.remove(ipynb_bitch)
-    
+
+    img_pths = ["input/unprocessed/pink-blonde.jpg"]
+
+    start = time.time()
     preprocessor.preprocess_imgs(img_pths)
+    print("Took ", time.time() - start)

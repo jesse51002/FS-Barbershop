@@ -26,7 +26,7 @@ def create_parser():
     parser.add_argument('--n_mlp', type=int, default=8)
 
     # Arguments
-    parser.add_argument('--device', type=str, nargs='+', default=['cuda'])
+    parser.add_argument('--device', type=str, nargs='+', default=['cuda:0'])
     parser.add_argument('--seed', type=int, default=None)
     parser.add_argument('--tile_latent', action='store_true', help='Whether to forcibly tile the same latent N times')
     parser.add_argument('--opt_name', type=str, default='adam', help='Optimizer to use in projected gradient descent')

@@ -7,17 +7,17 @@ from utils.bicubic import BicubicDownSample
 from tqdm import tqdm
 import torchvision
 from utils.data_utils import convert_npy_code
-from models.face_parsing.model import BiSeNet, seg_mean, seg_std
+from models.face_parsing.model import seg_mean, seg_std
 from models.face_parsing.classes import CLASSES
 from losses.align_loss import AlignLossBuilder
 import torch.nn.functional as F
 import cv2
 from utils.data_utils import load_FS_latent
 from utils.seg_utils import save_vis_mask
-from utils.model_utils import download_weight
 from utils.data_utils import cuda_unsqueeze
 from utils.image_utils import dilate_erosion_mask_tensor
 from threading import Thread, Lock
+import time
 
 toPIL = torchvision.transforms.ToPILImage()
 
@@ -441,9 +441,9 @@ class Alignment(nn.Module):
                 target=gpu_1_inference,
                 args=(results, threading_lock, self.seg1, self.net1, self.loss_builder1, self.opts.device[1])
             )
-    
-            gpu0_thread.start()
+
             gpu1_thread.start()
+            gpu0_thread.start()
             gpu0_thread.join()
             gpu1_thread.join()
         else:
