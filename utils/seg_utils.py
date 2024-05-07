@@ -33,8 +33,27 @@ def expand_face_mask(face_seg, human_seg):
     # Removes places that used to be hair in mask1
     body_mask[(human_seg == 0) | (face_seg != 0)] = 0
 
+    """
+    # Gets the bottom of the face for differention between neck and body
+    face_idx = np.where(face_seg == CLASSES["face"])
+    max_face = body_mask.shape[-1]
+    if face_idx[0].shape[0] != 0:
+        max_face = face_idx[0].max()
+
+    # everything above the lowest face is neck
+    neck_mask = np.zeros_like(body_mask)
+    neck_mask[:max_face, :] = body_mask[:max_face, :]
+
+    
+    # Everything below the lowest face is body
+    body_mask[:max_face, :] = 0
+
+    face_seg = np.where(neck_mask == 1, CLASSES["neck"], face_seg)
+    """
+    
     # Adds body mask
     face_seg = np.where(body_mask == 1, CLASSES["body"], face_seg)
+    
 
     # Adds uncaught strands on hair
     hair_mask = np.where(face_seg == CLASSES["hair"], 1, 0)

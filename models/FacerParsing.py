@@ -47,7 +47,7 @@ class FacerDetection(Model):
         self.device = device
         self.face_detector_model = facer.face_detector('retinaface/mobilenet', device=self.device)
     
-    def inference(self, imgs):
+    def inference(self, imgs, keep_one_img=True):
         """
         Input:
         imgs (torch tensor) (RGB): b x c x h x w
@@ -63,11 +63,35 @@ class FacerDetection(Model):
 
         with torch.inference_mode():
             faces = self.face_detector_model(imgs)
+
+        if keep_one_img:
+            predicted_count = faces["image_ids"].shape[0]
             
+            keep_idxs = [-1] * imgs.shape[0]
+            keep_top_perc = [-1] * imgs.shape[0]
+            
+            for i in range(predicted_count):
+                img_idx = faces["image_ids"][i]
+                
+                score = faces["scores"][i]
+    
+                if score > keep_top_perc[img_idx]:
+                    keep_idxs[img_idx] = i
+                    keep_top_perc[img_idx] = score
+    
+            bool_selector = torch.zeros((predicted_count)).bool()
+            for i in keep_idxs:
+                assert i >= 0, f"No faces were found in image {i} face detection"
+                bool_selector[i] = True
+    
+            for key in faces:
+                faces[key] = faces[key][bool_selector]
+        
         return faces
 
 
 class FacerModel(Model):
+    
     def __init__(self, face_detector: FacerDetection, device="cuda"):
         self.device = device
         self.segmentation_model = facer.face_parser('farl/lapa/448', device=self.device)
@@ -137,7 +161,7 @@ class FacerKeypoints(Model):
         middle = 8
         right_end = 16
 
-        np_points = keypoints['alignment'].data.cpu().numpy()
+        np_points = keypoints.data.cpu().numpy()
 
         right = []
         left = []
@@ -227,7 +251,7 @@ if __name__ == "__main__":
         start = time.time()
         keypoints = keypoint_model.inference(torch_img)
 
-        right_coef, left_coef, y_range = keypoint_model.create_poly_equation(keypoints)
+        right_coef, left_coef, y_range = keypoint_model.create_poly_equation(keypoints['alignment'])
         equation_results = keypoint_model.inference_poly_eq(right_coef, left_coef, y_range)
 
         for i in range(len(equation_results)):

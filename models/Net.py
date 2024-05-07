@@ -12,9 +12,10 @@ from torch.nn.parallel import DistributedDataParallel
 
 
 class Net(nn.Module):
-    def __init__(self, opts):
+    def __init__(self, opts, device="cuda"):
         super(Net, self).__init__()
         self.opts = opts
+        self.device = device
         self.generator = Generator(opts.size, opts.latent, opts.n_mlp, channel_multiplier=opts.channel_multiplier)
         self.cal_layer_num()
         self.load_weights()
@@ -27,11 +28,10 @@ class Net(nn.Module):
 
         print('Loading StyleGAN2 from checkpoint: {}'.format(self.opts.ckpt))
         checkpoint = torch.load(self.opts.ckpt)
-        device = self.opts.device
         self.generator.load_state_dict(checkpoint['g_ema'])
         self.latent_avg = checkpoint['latent_avg']
-        self.generator.to(device)
-        self.latent_avg = self.latent_avg.to(device)
+        self.generator.to(self.device)
+        self.latent_avg = self.latent_avg.to(self.device)
 
         for param in self.generator.parameters():
             param.requires_grad = False
@@ -44,7 +44,7 @@ class Net(nn.Module):
             # latent = torch.randn((10000, 512), dtype=torch.float32)
             self.generator.style.cpu()
             pulse_space = torch.nn.LeakyReLU(5)(self.generator.style(latent)).numpy()
-            self.generator.style.to(self.opts.device)
+            self.generator.style.to(self.device)
 
         from utils.PCA_utils import IPCAEstimator
 
@@ -56,7 +56,7 @@ class Net(nn.Module):
 
 
     def load_PCA_model(self):
-        device = self.opts.device
+        device = self.device
 
         PCA_path = self.opts.ckpt[:-3] + '_PCA.npz'
 

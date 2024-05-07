@@ -1,16 +1,12 @@
-import argparse
-
-import torch
-import numpy as np
-import sys
 import os
-import dlib
 import time
+import torch
+from utils.model_utils import download_weight
+from threading import Thread
 
-
-from PIL import Image
-
-from models.SegMaker import SegMaker
+from args_maker import create_parser
+from models.face_parsing.model import BiSeNet
+from models.SegmentationMaker import SegMaker
 from models.Embedding import Embedding
 from models.Alignment import Alignment
 from models.Blending import Blending
@@ -18,57 +14,75 @@ from models.FacerParsing import FacerModel, FacerKeypoints, FacerDetection
 from models.p3m_matting.inference import human_matt_model
 from models.Net import Net
 
+
 def main(args):
-    # torch.autograd.set_detect_anomaly(True)
+    args.device = ["cuda:0", "cuda:0"]
+
+    assert len(args.device) > 0, f"0 devices was supplied {args.device}"
+    assert len(args.device) <= 2, f"Max of 2 devices can be supplied not {args.device}"
     
-    #
-    # ##### Option 1: input folder
-    # # ii2s.invert_images_in_W()
-    # # ii2s.invert_images_in_FS()
-
-    # ##### Option 2: image path
-    # # ii2s.invert_images_in_W('input/face/28.png')
-    # # ii2s.invert_images_in_FS('input/face/28.png')
-    #
-    ##### Option 3: image path list
-
-    # im_path1 = 'input/face/90.png'
-    # im_path2 = 'input/face/15.png'
-    # im_path3 = 'input/face/117.png'
-
+    args.is_multi_gpu = len(args.device) == 2
+    
     im_path1 = os.path.join(args.input_dir, args.im_path1)
     im_path2 = os.path.join(args.input_dir, args.im_path2)
     im_path3 = os.path.join(args.input_dir, args.im_path3)
-
-    grand_start_time = time.time()
-    
     im_set = {im_path1, im_path2, im_path3}
 
-    net = Net(args)
-    face_detector = FacerDetection()
-    keypoint_model = FacerKeypoints(face_detector=face_detector, device=args.device)
-    facer = FacerModel(face_detector=face_detector, device=args.device)
-    background_remover = human_matt_model(device=args.device)
-    
-    print("Starting segmentor")
-    start = time.time()
-    segmentor = SegMaker(args, facer=facer, background_remover=background_remover, keypoint_model=keypoint_model)
-    segmentor.create_segmentations(im_path1, im_path2, im_path3)
-    print(f"segmentor {time.time() - start}")
-    
-    print("Starting ai space creation")
-    start = time.time()
-    ii2s = Embedding(args, net=net)
-    
-    print("Invert in W")
-    ii2s.invert_images_in_W([*im_set])
-    print("Invert in FS")
-    ii2s.invert_images_in_FS([*im_set])
-    print(f"ai space creation tool {time.time() - start}")
+    print("Loading models")
 
+    seg = BiSeNet(n_classes=16)
+    seg.to(args.device[0])
+    if not os.path.exists(args.seg_ckpt):
+        download_weight(args.seg_ckpt)
+    seg.load_state_dict(torch.load(args.seg_ckpt))
+    for param in seg.parameters():
+        param.requires_grad = False
+    seg.eval()
+    
+    net0 = Net(args, device=args.device[0])
+    net1 = Net(args, device=args.device[1]) if args.is_multi_gpu else None
+        
+    face_detector = FacerDetection()
+    keypoint_model = FacerKeypoints(face_detector=face_detector, device=args.device[1] if args.is_multi_gpu else args.device[0])
+    facer = FacerModel(face_detector=face_detector, device=args.device[1] if args.is_multi_gpu else args.device[0])
+    background_remover = human_matt_model(device=args.device[1] if args.is_multi_gpu else args.device[0])
+
+    ii2s = Embedding(args, net=net0)
+    segmentor = SegMaker(args, facer=facer, background_remover=background_remover, keypoint_model=keypoint_model)
+    align = Alignment(args, seg=seg, net0=net0, net1=net1)
+    blend = Blending(args, seg=seg, net=net0, facer=facer, background_remover=background_remover)
+    print("Finished loading models")
+
+    def inverting_gpu0():
+        print("Starting ai space creation")
+        start = time.time()
+        ii2s.invert_images_in_W([*im_set])
+        ii2s.invert_images_in_FS([*im_set])
+        print(f"Embedding took  {time.time() - start}")
+    
+    def segmentor_gpu1():
+        print("Starting segmentor")
+        start = time.time()
+        segmentor.create_segmentations([*im_set])
+        print(f"segmentor {time.time() - start}")
+
+    if args.is_multi_gpu:
+        gpu0_thread = Thread(target=inverting_gpu0)
+        gpu1_thread = Thread(target=segmentor_gpu1)
+    
+        gpu0_thread.start()
+        gpu1_thread.start()
+        gpu0_thread.join()
+        gpu1_thread.join()
+    else:
+        inverting_gpu0()
+        segmentor_gpu1()
+        
+        
+    grand_start_time = time.time()
+    
     print("Starting alignment")
     start = time.time()
-    align = Alignment(args, net=net)
     align.align_images(im_path1, im_path2, sign=args.sign, align_more_region=False, smooth=args.smooth)
     if im_path2 != im_path3:
         align.align_images(im_path1, im_path3, sign=args.sign, align_more_region=False, smooth=args.smooth, save_intermediate=False)
@@ -76,77 +90,13 @@ def main(args):
 
     print("Starting blending")
     start = time.time()
-    blend = Blending(args, net=net, facer=facer, background_remover=background_remover)
     blend.blend_images(im_path1, im_path2, im_path3, sign=args.sign)
     print(f"blending took {time.time() - start}")
 
-
-    print(f"Total model loading time took {(time.time() - grand_start_time) / 60} minutes")
-
+    print(f"Total model loading time took {(time.time() - grand_start_time)} seconds")
 
 
 if __name__ == "__main__":
-
-    parser = argparse.ArgumentParser(description='Barbershop')
-
-    # I/O arguments
-    parser.add_argument('--input_dir', type=str, default='input/face',
-                        help='The directory of the images to be inverted')
-    parser.add_argument('--output_dir', type=str, default='output',
-                        help='The directory to save the latent codes and inversion images')
-    parser.add_argument('--im_path1', type=str, default='16.png', help='Identity image')
-    parser.add_argument('--im_path2', type=str, default='15.png', help='Structure image')
-    parser.add_argument('--im_path3', type=str, default='117.png', help='Appearance image')
-    parser.add_argument('--sign', type=str, default='realistic', help='realistic or fidelity results')
-    parser.add_argument('--smooth', type=int, default=5, help='dilation and erosion parameter')
-
-    # StyleGAN2 setting
-    parser.add_argument('--size', type=int, default=1024)
-    parser.add_argument('--ckpt', type=str, default="pretrained_models/ffhq.pt")
-    parser.add_argument('--channel_multiplier', type=int, default=2)
-    parser.add_argument('--latent', type=int, default=512)
-    parser.add_argument('--n_mlp', type=int, default=8)
-
-    # Arguments
-    parser.add_argument('--device', type=str, default='cuda')
-    parser.add_argument('--seed', type=int, default=None)
-    parser.add_argument('--tile_latent', action='store_true', help='Whether to forcibly tile the same latent N times')
-    parser.add_argument('--opt_name', type=str, default='adam', help='Optimizer to use in projected gradient descent')
-    parser.add_argument('--learning_rate', type=float, default=0.01, help='Learning rate to use during optimization')
-    parser.add_argument('--lr_schedule', type=str, default='fixed', help='fixed, linear1cycledrop, linear1cycle')
-    parser.add_argument('--save_intermediate', action='store_true',
-                        help='Whether to store and save intermediate HR and LR images during optimization')
-    parser.add_argument('--save_interval', type=int, default=300, help='Latent checkpoint interval')
-    parser.add_argument('--verbose', action='store_true', help='Print loss information')
-    parser.add_argument('--seg_ckpt', type=str, default='pretrained_models/seg.pth')
-
-
-    # Embedding loss options
-    parser.add_argument('--percept_lambda', type=float, default=1.0, help='Perceptual loss multiplier factor')
-    parser.add_argument('--l2_lambda', type=float, default=1.0, help='L2 loss multiplier factor')
-    parser.add_argument('--p_norm_lambda', type=float, default=0.001, help='P-norm Regularizer multiplier factor')
-    parser.add_argument('--l_F_lambda', type=float, default=0.1, help='L_F loss multiplier factor')
-    parser.add_argument('--W_steps', type=int, default=1100, help='Number of W space optimization steps')
-    parser.add_argument('--FS_steps', type=int, default=250, help='Number of W space optimization steps')
-
-
-
-    # Alignment loss options
-    parser.add_argument('--ce_lambda', type=float, default=1.0, help='cross entropy loss multiplier factor')
-    parser.add_argument('--style_lambda', type=float, default=40000, help='style loss multiplier factor')
-    parser.add_argument('--hair_perc_lambda', type=float, default=100.0, help='hair segmenation percentage similarty multiplier factor')
-    parser.add_argument('--body_alternate_number', type=int, default=3, help='')
-    parser.add_argument('--align_steps1', type=int, default=140, help='')
-    parser.add_argument('--align_steps2', type=int, default=100, help='')
-
-
-    # Blend loss options
-    parser.add_argument('--face_lambda', type=float, default=1.0, help='')
-    parser.add_argument('--hair_lambda', type=str, default=1.0, help='')
-    parser.add_argument('--blend_steps', type=int, default=400, help='')
-
-    parser.add_argument("--local-rank", type=int, default=0)
-
-
+    parser = create_parser()
     args = parser.parse_args()
     main(args)

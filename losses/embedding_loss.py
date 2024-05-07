@@ -5,17 +5,22 @@ import os
 
 
 class EmbeddingLossBuilder(torch.nn.Module):
-    def __init__(self, opt):
+    def __init__(self, opt, device):
         super(EmbeddingLossBuilder, self).__init__()
 
         self.opt = opt
         self.parsed_loss = [[opt.l2_lambda, 'l2'], [opt.percept_lambda, 'percep']]
         self.l2 = torch.nn.MSELoss()
-        if opt.device == 'cuda':
+        if 'cuda' in device:
             use_gpu = True
+            device_split = device.split(":")
+            
+            assert len(device_split) <= 2, f"Device split failed, invalid device given {device}"
+            
+            gpu_ids = [int(device_split[1])] if len(device_split) == 2 else [0]
         else:
             use_gpu = False
-        self.percept = lpips.PerceptualLoss(model="net-lin", net="vgg", use_gpu=use_gpu)
+        self.percept = lpips.PerceptualLoss(model="net-lin", net="vgg", use_gpu=use_gpu, gpu_ids=gpu_ids)
         self.percept.eval()
         # self.percept = VGGLoss()
 

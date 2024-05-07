@@ -1,13 +1,11 @@
 import torch
 from torch import nn
-from models.Net import Net
 import numpy as np
 import os
 from functools import partial
 from utils.bicubic import BicubicDownSample
 from tqdm import tqdm
 import torchvision
-from PIL import Image
 from utils.data_utils import convert_npy_code
 from models.face_parsing.model import BiSeNet, seg_mean, seg_std
 from models.face_parsing.classes import CLASSES
@@ -15,60 +13,56 @@ from losses.align_loss import AlignLossBuilder
 import torch.nn.functional as F
 import cv2
 from utils.data_utils import load_FS_latent
-from utils.seg_utils import save_vis_mask, save_original_mask, save_human_mask
+from utils.seg_utils import save_vis_mask
 from utils.model_utils import download_weight
 from utils.data_utils import cuda_unsqueeze
 from utils.image_utils import dilate_erosion_mask_tensor
-import time
+from threading import Thread, Lock
 
 toPIL = torchvision.transforms.ToPILImage()
 
 
 class Alignment(nn.Module):
 
-    def __init__(self, opts, net=None):
+    def __init__(self, opts, net0=None, net1=None, seg=None):
         super(Alignment, self).__init__()
+        
         self.opts = opts
-        if not net:
-            self.net = Net(self.opts)
-        else:
-            self.net = net
+        self.net0 = net0
+        self.net1 = net1
+        self.seg = seg
 
-        self.load_segmentation_network()
         self.load_downsampling()
         self.setup_align_loss_builder()
-    
-    def load_segmentation_network(self):
-        self.seg = BiSeNet(n_classes=16)
-        self.seg.to(self.opts.device)
 
-        if not os.path.exists(self.opts.seg_ckpt):
-            download_weight(self.opts.seg_ckpt)
-        self.seg.load_state_dict(torch.load(self.opts.seg_ckpt))
-        for param in self.seg.parameters():
-            param.requires_grad = False
-        self.seg.eval()
+    def set_opts(self, opts):
+        self.opts = opts
 
     def load_downsampling(self):
         self.downsample = BicubicDownSample(factor=self.opts.size // 512)
         self.downsample_256 = BicubicDownSample(factor=self.opts.size // 256)
 
     def setup_align_loss_builder(self):
-        self.loss_builder = AlignLossBuilder(self.opts, num_classes=len(CLASSES))
-
+        self.loss_builder0 = AlignLossBuilder(self.opts, num_classes=len(CLASSES), device=self.opts.device[0])
+        if self.opts.is_multi_gpu:
+            self.loss_builder1 = AlignLossBuilder(self.opts, num_classes=len(CLASSES), device=self.opts.device[1])
+            
     def create_target_segmentation_mask(self, img_path1, img_path2, sign, save_intermediate=True):
-        device = self.opts.device
+        device = self.opts.device[0]
 
         mask_save_dir = os.path.join(self.opts.output_dir, 'masks')
         
         im1_name = os.path.basename(img_path1).split(".")[0]
         im2_name = os.path.basename(img_path2).split(".")[0]
         
-        mask1_npy_pth = os.path.join(mask_save_dir, im1_name) + ".npy"
-        mask2_npy_pth = os.path.join(mask_save_dir, im2_name) + ".npy"
+        mask1_npz_pth = os.path.join(mask_save_dir, im1_name) + "_mask.npz"
+        mask2_npz_pth = os.path.join(mask_save_dir, im2_name) + "_mask.npz"
+
+        mask1_npz = np.load(mask1_npz_pth)
+        mask2_npz = np.load(mask2_npz_pth)
         
-        seg_target1 = torch.tensor(np.load(mask1_npy_pth)).to(device).float().unsqueeze(0)
-        seg_target2 = torch.tensor(np.load(mask2_npy_pth)).to(device).float().unsqueeze(0)
+        seg_target1 = torch.tensor(mask1_npz["mask"]).to(device).float().unsqueeze(0)
+        seg_target2 = torch.tensor(mask2_npz["mask"]).to(device).float().unsqueeze(0)
 
         ggg = torch.where(seg_target1 == 0, torch.zeros_like(seg_target1), torch.ones_like(seg_target1))
 
@@ -78,14 +72,13 @@ class Alignment(nn.Module):
         
         hair_mask2 = torch.where(seg_target2 == CLASSES["hair"], torch.ones_like(seg_target2), torch.zeros_like(seg_target2))
         
-
         # --------------------------------------------
         # Loops through each y index and uses face keypoints to make sure hair isn't covering the face where its nto supposed to
-        img1_left_points = np.load(os.path.join(mask_save_dir, im1_name) + "_left_points.npy")
-        img1_right_points = np.load(os.path.join(mask_save_dir, im1_name) + "_right_points.npy")
+        img1_left_points = mask1_npz["left_points"]
+        img1_right_points = mask1_npz["right_points"]
 
-        img2_left_points = np.load(os.path.join(mask_save_dir, im2_name) + "_left_points.npy")
-        img2_right_points = np.load(os.path.join(mask_save_dir, im2_name) + "_right_points.npy")
+        img2_left_points = mask2_npz["left_points"]
+        img2_right_points = mask2_npz["right_points"]
 
         img_center = 256
         
@@ -97,19 +90,17 @@ class Alignment(nn.Module):
         
         hair_left_points = img_center * 2 - torch.argmax(torch.flip(hair_mask2_left, dims=[2]), axis=2)[0]
         hair_right_points = torch.argmax(hair_mask2_right, axis=2)[0]
-
-        offset = img2_left_points[0, 1] - img1_left_points[0, 1]
         
-        for i in range(img2_left_points.shape[0]):
-            current_y = img2_left_points[i, 1]
-            
-            img1_i = i + offset
+        for img1_i in range(img1_left_points.shape[0]):
+            current_y = img1_left_points[img1_i, 1]
+
+            img2_i = int(img1_i / img1_left_points.shape[0] * img2_left_points.shape[0])
 
             if img1_i < 0 or img1_i >= img1_left_points.shape[0]:
                 continue
 
             if hair_left_points[current_y] != 0:
-                left_hair_distance2 = hair_left_points[current_y] - img2_left_points[i, 0]
+                left_hair_distance2 = hair_left_points[current_y] - img2_left_points[img2_i, 0]
                 hair_move_point = left_hair_distance2 + img1_left_points[img1_i, 0]
                 
                 add_amount = hair_move_point - hair_left_points[current_y]
@@ -119,7 +110,7 @@ class Alignment(nn.Module):
                     hair_mask2[:, current_y, hair_left_points[current_y] + add_amount: hair_left_points[current_y]] = 0
 
             if hair_right_points[current_y] != 0:
-                right_hair_distance2 = hair_right_points[current_y] - img2_right_points[i, 0]
+                right_hair_distance2 = hair_right_points[current_y] - img2_right_points[img2_i, 0]
                 hair_move_point = right_hair_distance2 + img1_right_points[img1_i, 0]
 
                 add_amount = hair_right_points[current_y] - hair_move_point
@@ -129,8 +120,8 @@ class Alignment(nn.Module):
                     hair_mask2[:, current_y, hair_right_points[current_y]: hair_right_points[current_y] - add_amount] = 0
 
         # Adds the hair to the mask
-        seg_target2 = torch.where((hair_mask2 == 0) & (seg_target2 == 10), 0, seg_target2)
-        seg_target2 = torch.where(hair_mask2 == 1, 10, seg_target2)
+        seg_target2 = torch.where((hair_mask2 == 0) & (seg_target2 == CLASSES["hair"]), 0, seg_target2)
+        seg_target2 = torch.where(hair_mask2 == 1, CLASSES["hair"], seg_target2)
         hair_mask2 = torch.where(seg_target2 == CLASSES["hair"], torch.ones_like(seg_target2), torch.zeros_like(seg_target2))
         
         # ----------------------------------------------
@@ -151,7 +142,6 @@ class Alignment(nn.Module):
         new_target_inpainted = (
                     cv2.inpaint(tmp.clone().numpy(), inpainting_region, 3, cv2.INPAINT_NS).astype(np.uint8) * CLASSES["hair"])
         new_target_final = torch.where(OB_region, torch.from_numpy(new_target_inpainted), new_target)
-
         target_mask = new_target_final.unsqueeze(0).long().cuda()
 
         # Adds hair between neck and hair
@@ -263,11 +253,11 @@ class Alignment(nn.Module):
 
         return target_mask, hair_mask_target, hair_mask1, hair_mask2
         
-    def setup_align_optimizer(self, latent_path=None):
+    def setup_align_optimizer(self, cur_net, latent_path=None, device="cuda"):
         if latent_path:
-            latent_W = torch.from_numpy(convert_npy_code(np.load(latent_path))).to(self.opts.device).requires_grad_(True)
+            latent_W = torch.from_numpy(convert_npy_code(np.load(latent_path))).to(device).requires_grad_(True)
         else:
-            latent_W = self.net.latent_avg.reshape(1, 1, 512).repeat(1, 18, 1).clone().detach().to(self.opts.device).requires_grad_(True)
+            latent_W = cur_net.latent_avg.reshape(1, 1, 512).repeat(1, 18, 1).clone().detach().to(device).requires_grad_(True)
         opt_dict = {
             'sgd': torch.optim.SGD,
             'adam': torch.optim.Adam,
@@ -279,8 +269,8 @@ class Alignment(nn.Module):
 
         return optimizer_align, latent_W
 
-    def create_down_seg(self, latent_in, face_mode=True):
-        gen_im, _ = self.net.generator([latent_in], input_is_latent=True, return_latents=False,
+    def create_down_seg(self, cur_net, latent_in, face_mode=True):
+        gen_im, _ = cur_net.generator([latent_in], input_is_latent=True, return_latents=False,
                                        start_layer=0, end_layer=8)
         gen_im_0_1 = (gen_im + 1) / 2
 
@@ -321,7 +311,7 @@ class Alignment(nn.Module):
         ################## img_path1: Identity Image
         ################## img_path2: Structure Image
 
-        device = self.opts.device
+        device = self.opts.device[0]
         output_dir = self.opts.output_dir
         target_mask, hair_mask_target, hair_mask1, hair_mask2 = \
             self.create_target_segmentation_mask(img_path1=img_path1, img_path2=img_path2, sign=sign,
@@ -339,91 +329,121 @@ class Alignment(nn.Module):
         latent_W_path_1 = os.path.join(output_dir, 'W+', f'{im_name_1}.npy')
         latent_W_path_2 = os.path.join(output_dir, 'W+', f'{im_name_2}.npy')
 
-        optimizer_align, latent_align_1 = self.setup_align_optimizer(latent_W_path_1)
-        
-        pbar = tqdm(range(self.opts.align_steps1), desc='Align Step 1', leave=False)
-        for step in pbar:
-            face_loss = step % self.opts.body_alternate_number != 0
+        def gpu_0_inference(results, lock, cur_net, cur_loss_builder, cur_device):
+            optimizer_align, latent_align_1 = self.setup_align_optimizer(cur_net, latent_W_path_1)
+
+            cur_target_mask = target_mask.to(cur_device)
             
-            optimizer_align.zero_grad()
-            latent_in = torch.cat([latent_align_1[:, :6, :], latent_1[:, 6:, :]], dim=1)
-            down_seg, _ = self.create_down_seg(latent_in, face_mode=face_loss)
+            pbar = tqdm(range(self.opts.align_steps1), desc='Align Step 1', leave=False)
+            for step in pbar:
+                face_loss = step % self.opts.body_alternate_number != 0
+                
+                optimizer_align.zero_grad()
+                latent_in = torch.cat([latent_align_1[:, :6, :], latent_1[:, 6:, :]], dim=1)
+                down_seg, _ = self.create_down_seg(cur_net, latent_in, face_mode=face_loss)
+    
+                loss_dict = {}
+                loss = 0
+                
+                # Cross Entropy Loss
+                ce_loss = cur_loss_builder.cross_entropy_loss(down_seg, cur_target_mask)
+                loss_dict["ce_loss"] = ce_loss.item()
+                loss = ce_loss
+    
+                loss.backward()
+                optimizer_align.step()
+    
+            intermediate_align, _ = cur_net.generator([latent_in], input_is_latent=True, return_latents=False,
+                                                       start_layer=0, end_layer=3)
+            intermediate_align = intermediate_align.clone().detach()
 
-            loss_dict = {}
-            loss = 0
+            with lock:
+                results["intermediate_align"] = intermediate_align
             
-            # Cross Entropy Loss
-            ce_loss = self.loss_builder.cross_entropy_loss(down_seg, target_mask)
-            loss_dict["ce_loss"] = ce_loss.item()
-            loss = ce_loss
-
-            loss.backward()
-            optimizer_align.step()
-
-        intermediate_align, _ = self.net.generator([latent_in], input_is_latent=True, return_latents=False,
-                                                   start_layer=0, end_layer=3)
-        intermediate_align = intermediate_align.clone().detach()
-        
         ##############################################
-
-        optimizer_align, latent_align_2 = self.setup_align_optimizer(latent_W_path_2)
-
-        with torch.no_grad():
-            tmp_latent_in = torch.cat([latent_align_2[:, :6, :], latent_2[:, 6:, :]], dim=1)
-            down_seg_tmp, I_Structure_Style_changed = self.create_down_seg(tmp_latent_in)
-
-            current_mask_tmp = torch.argmax(down_seg_tmp, dim=1).long()
-            HM_Structure = torch.where(current_mask_tmp == 10, torch.ones_like(current_mask_tmp),
-                                       torch.zeros_like(current_mask_tmp))
-            HM_Structure = F.interpolate(HM_Structure.float().unsqueeze(0), size=(256, 256), mode='nearest')
-
-        pbar = tqdm(range(self.opts.align_steps2), desc='Align Step 2', leave=False)
-        for step in pbar:
-            face_loss = step % self.opts.body_alternate_number != 0 
+        def gpu_1_inference(results, lock, cur_net, cur_loss_builder, cur_device):
+            cur_latent_2 = latent_2.to(cur_device)
             
-            optimizer_align.zero_grad()
-            latent_in = torch.cat([latent_align_2[:, :6, :], latent_2[:, 6:, :]], dim=1)
-            down_seg, gen_im = self.create_down_seg(latent_in, face_mode=face_loss)
+            optimizer_align, latent_align_2 = self.setup_align_optimizer(cur_net, latent_W_path_2)
 
-            Current_Mask = torch.argmax(down_seg, dim=1).long()
-            HM_G_512 = torch.where(Current_Mask == 10, torch.ones_like(Current_Mask),
-                                   torch.zeros_like(Current_Mask)).float().unsqueeze(0)
-            HM_G = F.interpolate(HM_G_512, size=(256, 256), mode='nearest')
-
-            loss_dict = {}
-            loss = 0
-            # Segmentation Loss
+            cur_target_mask = target_mask.to(cur_device)
             
-            ce_loss = self.loss_builder.cross_entropy_loss(down_seg, target_mask)
-            loss_dict["ce_loss"] = ce_loss.item()
-            loss = ce_loss  # + hair_perc_loss
+            with torch.no_grad():
+                tmp_latent_in = torch.cat([latent_align_2[:, :6, :], cur_latent_2[:, 6:, :]], dim=1)
+                down_seg_tmp, I_Structure_Style_changed = self.create_down_seg(cur_net, tmp_latent_in)
+    
+                current_mask_tmp = torch.argmax(down_seg_tmp, dim=1).long()
+                HM_Structure = torch.where(current_mask_tmp == 10, torch.ones_like(current_mask_tmp),
+                                           torch.zeros_like(current_mask_tmp))
+                HM_Structure = F.interpolate(HM_Structure.float().unsqueeze(0), size=(256, 256), mode='nearest')
+    
+            pbar = tqdm(range(self.opts.align_steps2), desc='Align Step 2', leave=False)
+            for step in pbar:
+                face_loss = step % self.opts.body_alternate_number != 0
+                
+                optimizer_align.zero_grad()
+                latent_in = torch.cat([latent_align_2[:, :6, :], cur_latent_2[:, 6:, :]], dim=1)
+                down_seg, gen_im = self.create_down_seg(cur_net, latent_in, face_mode=face_loss)
+    
+                Current_Mask = torch.argmax(down_seg, dim=1).long()
+                HM_G_512 = torch.where(Current_Mask == 10, torch.ones_like(Current_Mask),
+                                       torch.zeros_like(Current_Mask)).float().unsqueeze(0)
+                HM_G = F.interpolate(HM_G_512, size=(256, 256), mode='nearest')
+    
+                loss_dict = {}
+                loss = 0
+                # Segmentation Loss
+                
+                ce_loss = cur_loss_builder.cross_entropy_loss(down_seg, cur_target_mask)
+                loss_dict["ce_loss"] = ce_loss.item()
+                loss = ce_loss  # + hair_perc_loss
+    
+                # Style Loss
+                H1_region = self.downsample_256(I_Structure_Style_changed) * HM_Structure
+                H2_region = self.downsample_256(gen_im) * HM_G
+                style_loss = cur_loss_builder.style_loss(H1_region, H2_region, mask1=HM_Structure, mask2=HM_G)
+    
+                loss_dict["style_loss"] = style_loss.item()
+                loss += style_loss
+    
+                loss.backward()
+                optimizer_align.step()
 
-            # Style Loss
-            H1_region = self.downsample_256(I_Structure_Style_changed) * HM_Structure
-            H2_region = self.downsample_256(gen_im) * HM_G
-            style_loss = self.loss_builder.style_loss(H1_region, H2_region, mask1=HM_Structure, mask2=HM_G)
+            latent_F_out_new, _ = cur_net.generator([latent_in], input_is_latent=True, return_latents=False,
+                                                     start_layer=0, end_layer=3)
+            latent_F_out_new = latent_F_out_new.clone().detach()
 
-            loss_dict["style_loss"] = style_loss.item()
-            loss += style_loss
+            with lock:
+                results["latent_F_out_new"] = latent_F_out_new
 
-            """
-            print(
-                "CE:", ce_loss, 
-                "\nHP:", hair_perc_loss,
-                "\nS:", style_loss,
+        # Run Threads
+        results = {}
+        threading_lock = Lock()
+
+        if self.opts.is_multi_gpu:
+            print("Multi-threading aligment")
+            gpu0_thread = Thread(
+                target=gpu_0_inference,
+                args=(results, threading_lock, self.net0, self.loss_builder0, self.opts.device[0])
             )
-            """
-
-            # best_summary = f'BEST ({j+1}) | ' + ' | '.join(
-            #     [f'{x}: {y:.4f}' for x, y in loss_dict.items()])
-
-            loss.backward()
-            optimizer_align.step()
-
-        latent_F_out_new, _ = self.net.generator([latent_in], input_is_latent=True, return_latents=False,
-                                                 start_layer=0, end_layer=3)
-        latent_F_out_new = latent_F_out_new.clone().detach()
-
+            gpu1_thread = Thread(
+                target=gpu_1_inference,
+                args=(results, threading_lock, self.net1, self.loss_builder1, self.opts.device[1])
+            )
+    
+            gpu0_thread.start()
+            gpu1_thread.start()
+            gpu0_thread.join()
+            gpu1_thread.join()
+        else:
+            print("Single threading aligment")
+            gpu_0_inference(results, threading_lock, self.net0, self.loss_builder0, cur_device=self.opts.device[0])
+            gpu_1_inference(results, threading_lock, self.net0, self.loss_builder0, cur_device=self.opts.device[0])
+            
+        # Loads results
+        intermediate_align = results["intermediate_align"]
+        latent_F_out_new = results["latent_F_out_new"]
+        
         free_mask = 1 - (1 - hair_mask1.unsqueeze(0)) * (1 - hair_mask_target)
 
         ##############################
@@ -457,7 +477,7 @@ class Alignment(nn.Module):
         latent_F_mixed = latent_F_2 + interpolation_low.unsqueeze(0) * (
                 latent_F_mixed - latent_F_2)
 
-        gen_im, _ = self.net.generator([latent_1], input_is_latent=True, return_latents=False, start_layer=4,
+        gen_im, _ = self.net0.generator([latent_1], input_is_latent=True, return_latents=False, start_layer=4,
                                        end_layer=8, layer_in=latent_F_mixed)
         
         self.save_align_results(im_name_1, im_name_2, sign, gen_im, latent_1, latent_F_mixed,

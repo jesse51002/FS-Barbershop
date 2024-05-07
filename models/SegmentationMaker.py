@@ -7,6 +7,8 @@ import torch.nn as nn
 from models.FacerParsing import facer_to_bisnet
 from utils.seg_utils import expand_face_mask, vis_seg
 
+BATCH_SIZE = 4
+
 
 class SegMaker(nn.Module):
     def __init__(self, opts, facer=None, background_remover=None, keypoint_model=None):
@@ -16,15 +18,18 @@ class SegMaker(nn.Module):
         self.background_remover = background_remover
         self.keypoint_model = keypoint_model
 
-    def create_segmentations(self, img_path1, img_path2, img_path3):
-        imgs = list(set([img_path1, img_path2, img_path3]))
+    def set_opts(self, opts):
+        self.opts = opts
 
+    def create_segmentations(self, imgs):
+        imgs = imgs.copy()
+        
         i = 0
         while i < len(imgs):
             img_path = imgs[i]
             name = os.path.basename(img_path).split(".")[0]
             save_dir = os.path.join(self.opts.output_dir, 'masks')
-            save_pth = os.path.join(save_dir, name) + ".npy"
+            save_pth = os.path.join(save_dir, name) + "_mask.npz"
             if os.path.isfile(save_pth):
                 imgs.pop(i)
                 i -= 1
@@ -45,15 +50,32 @@ class SegMaker(nn.Module):
 
         batched_input = F.interpolate(batched_input, size=(512, 512), mode='nearest')
 
-        # print(batched_input.shape)
-        # uses high quality segmentation for segmenting
-        seg_targets = facer_to_bisnet(self.facer.inference(batched_input)[0]).float().detach().cpu().numpy()
+        # This is the base for concactinating the sub batches
+        human_segs = torch.zeros((0, 512, 512)).to(self.background_remover.device)
+        keypoints = torch.zeros((0, 68, 2)).to(self.keypoint_model.device)
+        seg_targets = torch.zeros((0, 512, 512)).to(self.facer.device)
+    
+        # Inferences sub batches
+        for i in range(0, len(imgs), BATCH_SIZE):
+            cur_batched_input = batched_input[i: min(i+BATCH_SIZE, len(imgs))]
 
-        # Gets the human matting segmentaion mask
-        human_segs = self.background_remover.inference(batched_input)[1].detach().cpu().numpy()
+            # Gets the human matting segmentaion mask
+            _, cur_human_seg = self.background_remover.inference(cur_batched_input)
 
-        # Gets the keypoints results
-        keypoints = self.keypoint_model.inference(batched_input)
+            # Gets the keypoints results
+            cur_keypoints = self.keypoint_model.inference(cur_batched_input)['alignment']
+
+            # Gets face parsing results
+            cur_seg_targets = facer_to_bisnet(self.facer.inference(cur_batched_input)[0])
+            
+            human_segs = torch.cat([human_segs, cur_human_seg], dim=0)
+            keypoints = torch.cat([keypoints, cur_keypoints], dim=0)
+            seg_targets = torch.cat([seg_targets, cur_seg_targets], dim=0)
+
+        seg_targets = seg_targets.float().data.cpu().numpy()
+        human_segs = human_segs.data.cpu().numpy()
+        keypoints = keypoints
+        
         right_coef, left_coef, y_range = self.keypoint_model.create_poly_equation(keypoints)
         equation_results = self.keypoint_model.inference_poly_eq(right_coef, left_coef, y_range)
 
@@ -67,10 +89,12 @@ class SegMaker(nn.Module):
             
             name = os.path.basename(img_path).split(".")[0]
             # Saves face parsing
-            np.save(os.path.join(save_dir, name) + ".npy", face_seg)
+            # np.save(os.path.join(save_dir, name) + "_mask.npy", face_seg)
             # Saves face keypoints
-            np.save(os.path.join(save_dir, name) + "_left_points.npy", equation_results[i]["left"])
-            np.save(os.path.join(save_dir, name) + "_right_points.npy", equation_results[i]["right"])
+            # np.save(os.path.join(save_dir, name) + "_left_points.npy", equation_results[i]["left"])
+            # np.save(os.path.join(save_dir, name) + "_right_points.npy", equation_results[i]["right"])
+
+            np.savez(os.path.join(save_dir, name) + "_mask.npz", mask=face_seg, left_points=equation_results[i]["left"], right_points=equation_results[i]["right"])
             
             rgb_img = vis_seg(face_seg)
             vis_img = Image.fromarray(rgb_img)

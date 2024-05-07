@@ -1,14 +1,10 @@
 import os
 import PIL
-import torchvision
 import torch.nn.functional as F
-from PIL import Image
 import torch
-import torchvision
-from PIL import Image
 from utils.bicubic import BicubicDownSample
 import numpy as np
-from models.FacerParsing import facer_to_bisnet
+from models.face_parsing.classes import CLASSES
 
 from torchvision.transforms import transforms
 import scipy
@@ -32,10 +28,10 @@ def dilate_erosion_mask_path(opts, im_path, dilate_erosion=5):
 
     mask_save_dir = os.path.join(opts.output_dir, 'masks')
     im_name = os.path.basename(im_path).split(".")[0]
-    mask_npy_pth = os.path.join(mask_save_dir, im_name) + ".npy"
+    mask_npy_pth = os.path.join(mask_save_dir, im_name) + "_mask.npz"
         
-    mask = torch.tensor(np.load(mask_npy_pth)).float().unsqueeze(0)
-    mask = torch.where(mask == 10, torch.ones_like(mask), torch.zeros_like(mask))
+    mask = torch.tensor(np.load(mask_npy_pth)["mask"]).float().unsqueeze(0)
+    mask = torch.where(mask == CLASSES["hair"], torch.ones_like(mask), torch.zeros_like(mask))
     mask = F.interpolate(mask.unsqueeze(0), size=(256, 256), mode='nearest').squeeze()
 
     # Hair mask + Hair image

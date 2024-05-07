@@ -4,23 +4,19 @@ from losses.style.style_loss import StyleLoss
 class AlignLossBuilder(torch.nn.Module):
 
     # Changes number of classes to classes in the segmantation model
-    def __init__(self, opt, num_classes=16):
+    def __init__(self, opt, num_classes=16, device="cuda"):
         super(AlignLossBuilder, self).__init__()
 
         self.opt = opt
         self.parsed_loss = [[opt.l2_lambda, 'l2'], [opt.percept_lambda, 'percep']]
-        if opt.device == 'cuda':
-            use_gpu = True
-        else:
-            use_gpu = False
 
         self.cross_entropy = torch.nn.CrossEntropyLoss()
-        self.style = StyleLoss(distance="l2", VGG16_ACTIVATIONS_LIST=[3, 8, 15, 22], normalize=False).to(opt.device)
+        self.style = StyleLoss(distance="l2", VGG16_ACTIVATIONS_LIST=[3, 8, 15, 22], normalize=False).to(device)
         self.style.eval()
 
         self.binary_ce = torch.nn.BCEWithLogitsLoss()
         
-        tmp = torch.zeros(num_classes).to(opt.device)
+        tmp = torch.zeros(num_classes).to(device)
         tmp[0] = 1
         self.cross_entropy_wo_background = torch.nn.CrossEntropyLoss(weight=1 - tmp)
         self.cross_entropy_only_background = torch.nn.CrossEntropyLoss(weight=tmp)

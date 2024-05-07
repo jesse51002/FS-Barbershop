@@ -1,21 +1,27 @@
 import torch
-import PIL
-import os
 from losses import masked_lpips
 
+
 class BlendLossBuilder(torch.nn.Module):
-    def __init__(self, opt):
+    def __init__(self, device):
         super(BlendLossBuilder, self).__init__()
 
-        self.opt = opt
         self.parsed_loss = [[1.0, 'face'], [1.0, 'hair']]
-        if opt.device == 'cuda':
+
+        gpu_ids = None
+        
+        if 'cuda' in device:
             use_gpu = True
+            device_split = device.split(":")
+            
+            assert len(device_split) <= 2, f"Device split failed, invalid device given {device}"
+            
+            gpu_ids = [int(device_split[1])] if len(device_split) == 2 else [0]
         else:
             use_gpu = False
 
         self.face_percept = masked_lpips.PerceptualLoss(
-            model="net-lin", net="vgg", vgg_blocks=['1', '2', '3'], use_gpu=use_gpu
+            model="net-lin", net="vgg", vgg_blocks=['1', '2', '3'], use_gpu=use_gpu, gpu_ids=gpu_ids
         )
         self.face_percept.eval()
 
@@ -23,8 +29,6 @@ class BlendLossBuilder(torch.nn.Module):
             model="net-lin", net="vgg", vgg_blocks=['1', '2', '3'], use_gpu=use_gpu
         )
         self.hair_percept.eval()
-
-
 
     def _loss_face_percept(self, gen_im, ref_im, mask, **kwargs):
 
@@ -34,9 +38,7 @@ class BlendLossBuilder(torch.nn.Module):
 
         return self.hair_percept(gen_im, ref_im, mask=mask)
 
-
     def forward(self, gen_im, im_1, im_3, mask_face, mask_hair):
-
         loss = 0
         loss_fun_dict = {
             'face': self._loss_face_percept,

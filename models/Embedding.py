@@ -1,6 +1,5 @@
 import torch
 from torch import nn
-from models.Net import Net
 import numpy as np
 import os
 from functools import partial
@@ -15,25 +14,24 @@ from utils.data_utils import convert_npy_code
 
 toPIL = torchvision.transforms.ToPILImage()
 
-class Embedding(nn.Module):
 
+class Embedding(nn.Module):
     def __init__(self, opts, net=None):
         super(Embedding, self).__init__()
+        
         self.opts = opts
-        if not net:
-            self.net = Net(self.opts)
-        else:
-            self.net = net
-        self.net = Net(self.opts)
+        self.net = net
+        
         self.load_downsampling()
         self.setup_embedding_loss_builder()
 
-
+    def set_opts(self, opts):
+        self.opts = opts
 
     def load_downsampling(self):
         factor = self.opts.size // 256
         self.downsample = BicubicDownSample(factor=factor)
-
+        
     def setup_W_optimizer(self):
 
         opt_dict = {
@@ -57,8 +55,6 @@ class Embedding(nn.Module):
             optimizer_W = opt_dict[self.opts.opt_name](latent, lr=self.opts.learning_rate)
 
         return optimizer_W, latent
-
-
 
     def setup_FS_optimizer(self, latent_W, F_init):
 
@@ -85,20 +81,17 @@ class Embedding(nn.Module):
 
         return optimizer_FS, latent_F, latent_S
 
-
-
-
     def setup_dataloader(self, image_path=None):
 
-        self.dataset = ImagesDataset(opts=self.opts,image_path=image_path)
+        self.dataset = ImagesDataset(opts=self.opts, image_path=image_path)
         self.dataloader = DataLoader(self.dataset, batch_size=1, shuffle=False)
         print("Number of images: {}".format(len(self.dataset)))
 
     def setup_embedding_loss_builder(self):
-        self.loss_builder = EmbeddingLossBuilder(self.opts)
-
+        self.loss_builder = EmbeddingLossBuilder(self.opts, device=self.net.device)
 
     def invert_images_in_W(self, image_path=None):
+        image_path = image_path.copy()
         # Causes images that already have saved data to be ignored
         cur_idx = 0
         while cur_idx < len(image_path):
@@ -117,7 +110,7 @@ class Embedding(nn.Module):
             return
             
         self.setup_dataloader(image_path=image_path)
-        device = self.opts.device
+        device = self.opts.device[0]
         ibar = tqdm(self.dataloader, desc='Images')
         for ref_im_H, ref_im_L, ref_name in ibar:
             optimizer_W, latent = self.setup_W_optimizer()
@@ -147,10 +140,8 @@ class Embedding(nn.Module):
 
             self.save_W_results(ref_name, gen_im, latent_in)
 
-
-
-
     def invert_images_in_FS(self, image_path=None):
+        image_path = image_path.copy()
         # Causes images that already have saved data to be ignored
         cur_idx = 0
         while cur_idx < len(image_path):
@@ -170,7 +161,7 @@ class Embedding(nn.Module):
         
         self.setup_dataloader(image_path=image_path)
         output_dir = self.opts.output_dir
-        device = self.opts.device
+        device = self.opts.device[0]
         ibar = tqdm(self.dataloader, desc='Images')
         for ref_im_H, ref_im_L, ref_name in ibar:
 
@@ -178,7 +169,6 @@ class Embedding(nn.Module):
             latent_W = torch.from_numpy(convert_npy_code(np.load(latent_W_path))).to(device)
             F_init, _ = self.net.generator([latent_W], input_is_latent=True, return_latents=False, start_layer=0, end_layer=3)
             optimizer_FS, latent_F, latent_S = self.setup_FS_optimizer(latent_W, F_init)
-
 
             pbar = tqdm(range(self.opts.FS_steps), desc='Embedding', leave=False)
             for step in pbar:
@@ -205,9 +195,6 @@ class Embedding(nn.Module):
 
             self.save_FS_results(ref_name, gen_im, latent_in, latent_F)
 
-
-
-
     def cal_loss(self, im_dict, latent_in, latent_F=None, F_init=None):
         loss, loss_dic = self.loss_builder(**im_dict)
         p_norm_loss = self.net.cal_p_norm_loss(latent_in)
@@ -220,8 +207,6 @@ class Embedding(nn.Module):
             loss += l_F
 
         return loss, loss_dic
-
-
 
     def save_W_results(self, ref_name, gen_im, latent_in):
         save_im = toPIL(((gen_im[0] + 1) / 2).detach().cpu().clamp(0, 1))
@@ -236,13 +221,9 @@ class Embedding(nn.Module):
         save_im.save(image_path)
         np.save(latent_path, save_latent)
 
-
-
     def save_W_intermediate_results(self, ref_name, gen_im, latent_in, step):
-
         save_im = toPIL(((gen_im[0] + 1) / 2).detach().cpu().clamp(0, 1))
         save_latent = latent_in.detach().cpu().numpy()
-
 
         intermediate_folder = os.path.join(self.opts.output_dir, 'W+', ref_name[0])
         os.makedirs(intermediate_folder, exist_ok=True)
@@ -253,9 +234,7 @@ class Embedding(nn.Module):
         save_im.save(image_path)
         np.save(latent_path, save_latent)
 
-
     def save_FS_results(self, ref_name, gen_im, latent_in, latent_F):
-
         save_im = toPIL(((gen_im[0] + 1) / 2).detach().cpu().clamp(0, 1))
 
         output_dir = os.path.join(self.opts.output_dir, 'FS')
@@ -267,7 +246,6 @@ class Embedding(nn.Module):
         save_im.save(image_path)
         np.savez(latent_path, latent_in=latent_in.detach().cpu().numpy(),
                  latent_F=latent_F.detach().cpu().numpy())
-
 
     def set_seed(self):
         if self.opt.seed:

@@ -1,73 +1,57 @@
 import torch
 from torch import nn
-from models.Net import Net
 import numpy as np
 import os
 from utils.bicubic import BicubicDownSample
 from tqdm import tqdm
-import PIL
 import torchvision
-from models.face_parsing.model import BiSeNet, seg_mean, seg_std
+from models.face_parsing.model import BiSeNet
 from models.face_parsing.classes import CLASSES
 from models.optimizer.ClampOptimizer import ClampOptimizer
 from losses.blend_loss import BlendLossBuilder
 import torch.nn.functional as F
-import cv2
 from utils.data_utils import load_FS_latent
 from utils.data_utils import cuda_unsqueeze
 from utils.image_utils import load_image, dilate_erosion_mask_path, dilate_erosion_mask_tensor
 from utils.model_utils import download_weight
 from utils.seg_utils import expand_face_mask
-from models.FacerParsing import FacerModel, facer_to_bisnet
-from models.p3m_matting.inference import human_matt_model
+from models.FacerParsing import facer_to_bisnet
 
 toPIL = torchvision.transforms.ToPILImage()
 
 
 class Blending(nn.Module):
-    def __init__(self, opts, net=None, facer=None, background_remover=None):
+    def __init__(self, opts, net=None, facer=None, background_remover=None, seg=None):
         super(Blending, self).__init__()
+        
         self.opts = opts
-        if not net:
-            self.net = Net(self.opts)
-        else:
-            self.net = net
-
+        self.net = net
         self.facer = facer
         self.background_remover = background_remover
-
-        self.load_segmentation_network()
+        self.seg = seg
+        
         self.load_downsampling()
         self.setup_blend_loss_builder()
+
+    def set_opts(self, opts):
+        self.opts = opts
     
     def load_downsampling(self):
         self.downsample = BicubicDownSample(factor=self.opts.size // 512)
         self.downsample_256 = BicubicDownSample(factor=self.opts.size // 256)
 
-    def load_segmentation_network(self):
-        self.seg = BiSeNet(n_classes=16)
-        self.seg.to(self.opts.device)
-
-        if not os.path.exists(self.opts.seg_ckpt):
-            download_weight(self.opts.seg_ckpt)
-        self.seg.load_state_dict(torch.load(self.opts.seg_ckpt))
-        for param in self.seg.parameters():
-            param.requires_grad = False
-        self.seg.eval()
-
     def setup_blend_optimizer(self):
-
-        interpolation_latent = torch.zeros((18, 512), requires_grad=True, device=self.opts.device)
+        interpolation_latent = torch.zeros((18, 512), requires_grad=True, device=self.opts.device[0])
 
         opt_blend = ClampOptimizer(torch.optim.Adam, [interpolation_latent], lr=self.opts.learning_rate)
 
         return opt_blend, interpolation_latent
 
     def setup_blend_loss_builder(self):
-        self.loss_builder = BlendLossBuilder(self.opts)
+        self.loss_builder = BlendLossBuilder(self.opts.device[0])
 
     def blend_images(self, img_path1, img_path2, img_path3, sign='realistic'):
-        device = self.opts.device
+        device = self.opts.device[0]
         output_dir = self.opts.output_dir
 
         im_name_1 = os.path.splitext(os.path.basename(img_path1))[0]
@@ -100,9 +84,9 @@ class Blending(nn.Module):
             seg_targets = facer_to_bisnet(self.facer.inference(IM)[0]).float().detach().cpu().numpy()
             human_segs = self.background_remover.inference(IM)[1].detach().cpu().numpy()
             
-            current_mask = torch.tensor(expand_face_mask(seg_targets[0], human_segs[0])).unsqueeze(0).float()
+            current_mask = torch.tensor(expand_face_mask(seg_targets[0], human_segs[0])).unsqueeze(0).float().to()
             
-            HM_X = torch.where(current_mask == 10, torch.ones_like(current_mask), torch.zeros_like(current_mask))
+            HM_X = torch.where(current_mask == CLASSES["hair"], torch.ones_like(current_mask), torch.zeros_like(current_mask))
             HM_X = F.interpolate(HM_X.unsqueeze(0), size=(256, 256), mode='nearest').squeeze()
             HM_XD, _ = cuda_unsqueeze(dilate_erosion_mask_tensor(HM_X), device)
             target_mask = (1 - HM_1D) * (1 - HM_3D) * (1 - HM_XD)
@@ -125,6 +109,7 @@ class Blending(nn.Module):
                 'mask_face': target_mask,
                 'mask_hair': HM_3E
             }
+            
             loss, loss_dic = self.loss_builder(**im_dict)
 
             # if self.opts.verbose:
