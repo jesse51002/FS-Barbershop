@@ -91,7 +91,7 @@ class Blending(nn.Module):
             HM_XD, _ = cuda_unsqueeze(dilate_erosion_mask_tensor(HM_X), device)
             target_mask = (1 - HM_1D) * (1 - HM_3D) * (1 - HM_XD)
 
-        pbar = tqdm(range(self.opts.blend_steps), desc='Blend', leave=False)
+        pbar = tqdm(range(self.opts.blend_steps), desc='Blend', leave=False, disable=self.opts.disable_progress_bar)
         for step in pbar:
 
             opt_blend.zero_grad()

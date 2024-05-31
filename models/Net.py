@@ -115,12 +115,11 @@ if __name__ == "__main__":
     net = Net(opt())
 
     latent = [net.latent_avg.unsqueeze(0).clone().cuda()]
-    
+    gen_im, _ = net.generator(latent, input_is_latent=True, return_latents=False, start_layer=0, end_layer=8)
+
+    # Average generation time 0.017113363742828368
     start = time.time()
-    for i in range(21):
-        if i == 1:
-            print("Starting image gen")
-            start = time.time()
+    for i in range(20):
         gen_im, _ = net.generator(latent, input_is_latent=True, return_latents=False, start_layer=0, end_layer=8)
     
     print("Finsihed image gen in", (time.time() - start) / 20)

@@ -16,7 +16,7 @@ from models.Net import Net
 
 
 def main(args):
-    args.device = ["cuda:1", "cuda:2"]
+    # args.device = ["cuda:1", "cuda:2"]
     
     assert len(args.device) > 0, f"0 devices was supplied {args.device}"
     assert len(args.device) <= 2, f"Max of 2 devices can be supplied not {args.device}"

@@ -17,6 +17,7 @@ def create_parser():
     parser.add_argument('--im_path3', type=str, default='117.png', help='Appearance image')
     parser.add_argument('--sign', type=str, default='realistic', help='realistic or fidelity results')
     parser.add_argument('--smooth', type=int, default=5, help='dilation and erosion parameter')
+    parser.add_argument('--disable_progress_bar', action='store_true')
 
     # StyleGAN2 setting
     parser.add_argument('--size', type=int, default=1024)
@@ -41,7 +42,7 @@ def create_parser():
 
     # Embedding loss options
     parser.add_argument('--percept_lambda', type=float, default=1.0, help='Perceptual loss multiplier factor')
-    parser.add_argument('--l2_lambda', type=float, default=1.0, help='L2 loss multiplier factor')
+    parser.add_argument('--l2_lambda', type=float, default=5.0, help='L2 loss multiplier factor')
     parser.add_argument('--p_norm_lambda', type=float, default=0.001, help='P-norm Regularizer multiplier factor')
     parser.add_argument('--l_F_lambda', type=float, default=0.1, help='L_F loss multiplier factor')
     parser.add_argument('--W_steps', type=int, default=1100, help='Number of W space optimization steps')
@@ -52,7 +53,7 @@ def create_parser():
     # Alignment loss options
     parser.add_argument('--ce_lambda', type=float, default=1.0, help='cross entropy loss multiplier factor')
     parser.add_argument('--style_lambda', type=float, default=40000, help='style loss multiplier factor')
-    parser.add_argument('--hair_perc_lambda', type=float, default=100.0, help='hair segmenation percentage similarty multiplier factor')
+    parser.add_argument('--align_color_lambda', type=float, default=0.005, help='hair color loss lambda to fix hair color')
     parser.add_argument('--body_alternate_number', type=int, default=3, help='')
     parser.add_argument('--align_steps1', type=int, default=140, help='')
     parser.add_argument('--align_steps2', type=int, default=100, help='')

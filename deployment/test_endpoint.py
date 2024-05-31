@@ -1,6 +1,10 @@
+import os
 import time
 import sagemaker
+
+os.environ["CRYPTOGRAPHY_OPENSSL_NO_LEGACY"] = "1"
 import boto3
+
 import json
 
 ENDPOINT_NAME = "cosmentic-gan-endpoint-2024-04-03-17-39-08"

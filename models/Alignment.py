@@ -1,5 +1,6 @@
 import torch
 from torch import nn
+from torchvision.io import read_image, ImageReadMode
 import numpy as np
 import os
 from functools import partial
@@ -20,6 +21,7 @@ from threading import Thread, Lock
 import time
 
 toPIL = torchvision.transforms.ToPILImage()
+COLOR_MATCH_QUARTILE = 0.75
 
 
 class Alignment(nn.Module):
@@ -78,60 +80,14 @@ class Alignment(nn.Module):
         seg_target1 = torch.where(seg_target1 == CLASSES["hair"], torch.zeros_like(seg_target1), seg_target1)
         
         hair_mask2 = torch.where(seg_target2 == CLASSES["hair"], torch.ones_like(seg_target2), torch.zeros_like(seg_target2))
+   
+        # Updates hair mask with relatove jaw and brow interpolation points
+        hair_mask2 = self.hair_interpolate_mask_updater(hair_mask2, mask1_npz, mask2_npz)
         
-        # --------------------------------------------
-        # Loops through each y index and uses face keypoints to make sure hair isn't covering the face where its nto supposed to
-        img1_left_points = mask1_npz["left_points"]
-        img1_right_points = mask1_npz["right_points"]
-
-        img2_left_points = mask2_npz["left_points"]
-        img2_right_points = mask2_npz["right_points"]
-
-        img_center = 256
-        
-        hair_mask2_left = hair_mask2.clone()
-        hair_mask2_left[:, :, img_center:] = 0
-        
-        hair_mask2_right = hair_mask2.clone()
-        hair_mask2_right[:, :, :img_center] = 0
-        
-        hair_left_points = img_center * 2 - torch.argmax(torch.flip(hair_mask2_left, dims=[2]), axis=2)[0]
-        hair_right_points = torch.argmax(hair_mask2_right, axis=2)[0]
-        
-        for img1_i in range(img1_left_points.shape[0]):
-            current_y = img1_left_points[img1_i, 1]
-
-            img2_i = int(img1_i / img1_left_points.shape[0] * img2_left_points.shape[0])
-
-            if img1_i < 0 or img1_i >= img1_left_points.shape[0]:
-                continue
-
-            if hair_left_points[current_y] != 0:
-                left_hair_distance2 = hair_left_points[current_y] - img2_left_points[img2_i, 0]
-                hair_move_point = left_hair_distance2 + img1_left_points[img1_i, 0]
-                
-                add_amount = hair_move_point - hair_left_points[current_y]
-                if add_amount > 0:
-                    hair_mask2[:, current_y, hair_left_points[current_y]: hair_left_points[current_y] + add_amount] = 1
-                else:
-                    hair_mask2[:, current_y, hair_left_points[current_y] + add_amount: hair_left_points[current_y]] = 0
-
-            if hair_right_points[current_y] != 0:
-                right_hair_distance2 = hair_right_points[current_y] - img2_right_points[img2_i, 0]
-                hair_move_point = right_hair_distance2 + img1_right_points[img1_i, 0]
-
-                add_amount = hair_right_points[current_y] - hair_move_point
-                if add_amount > 0:
-                    hair_mask2[:, current_y, hair_right_points[current_y] - add_amount: hair_right_points[current_y]] = 1
-                else:
-                    hair_mask2[:, current_y, hair_right_points[current_y]: hair_right_points[current_y] - add_amount] = 0
-
         # Adds the hair to the mask
         seg_target2 = torch.where((hair_mask2 == 0) & (seg_target2 == CLASSES["hair"]), 0, seg_target2)
         seg_target2 = torch.where(hair_mask2 == 1, CLASSES["hair"], seg_target2)
         hair_mask2 = torch.where(seg_target2 == CLASSES["hair"], torch.ones_like(seg_target2), torch.zeros_like(seg_target2))
-        
-        # ----------------------------------------------
 
         ggg = torch.where(seg_target2 == CLASSES["hair"], torch.ones_like(seg_target2), ggg).long()
         seg_target2 = seg_target2[0].byte().cpu().detach()
@@ -156,100 +112,22 @@ class Alignment(nn.Module):
         right, left, bottom, top = self.get_hair_box(target_mask)
         
         # Crops the box inwards to not mess up the curve on the outer hair curve
-        top_crop_perc = 0.3
-        side_crop_perc = 0.4
+        top_crop_perc = 0.2
+        side_crop_perc = 0.5
 
         top_move_amount = int(top_crop_perc * (top - bottom))
         side_move_amount = int(side_crop_perc / 2 * (left - right))
 
         right += side_move_amount
         left -= side_move_amount
-        bottom += top_move_amount
+        bottom = min(bottom + 70, top_move_amount + bottom)
 
         binary_box_mask = torch.zeros_like(target_mask)
         binary_box_mask[:, bottom:top, right:left] = 1
 
         target_mask = torch.where((binary_box_mask == 1) & (target_mask == 0), CLASSES["hair"], target_mask)
-         
-        """
-        # Adding temporaily inorder to fix mask issues --------------------------------------------------------------------------
-
-        ############################# add auto-inpainting
-
-        optimizer_align, latent_align = self.setup_align_optimizer()
-        latent_end = latent_align[:, 6:, :].clone().detach()
-
-        pbar = tqdm(range(80), desc='Create Target Mask Step1', leave=False)
-        for step in pbar:
-            optimizer_align.zero_grad()
-            latent_in = torch.cat([latent_align[:, :6, :], latent_end], dim=1)
-            down_seg, _ = self.create_down_seg(latent_in)
-            loss_dict = {}
-            
-            if sign == 'realistic':
-                ce_loss = self.loss_builder.cross_entropy_loss_wo_background(down_seg, target_mask)
-                ce_loss += self.loss_builder.cross_entropy_loss_only_background(down_seg, ggg)
-            else:
-                ce_loss = self.loss_builder.cross_entropy_loss(down_seg, target_mask)
-
-            loss_dict["ce_loss"] = ce_loss.item()
-            loss = ce_loss
-
-            loss.backward()
-            optimizer_align.step()
-
-        gen_seg_target = torch.argmax(down_seg, dim=1).long()
-        free_mask = hair_mask1 * (1 - hair_mask2)
-        target_mask = torch.where(free_mask == 1, gen_seg_target, target_mask)
-        previouse_target_mask = target_mask.clone().detach()
-
-        ############################################
-
-        target_mask = torch.where(OB_region.to(device).unsqueeze(0), torch.zeros_like(target_mask), target_mask)
-        optimizer_align, latent_align = self.setup_align_optimizer()
-        latent_end = latent_align[:, 6:, :].clone().detach()
-
-        pbar = tqdm(range(80), desc='Create Target Mask Step2', leave=False)
-        for step in pbar:
-            optimizer_align.zero_grad()
-            latent_in = torch.cat([latent_align[:, :6, :], latent_end], dim=1)
-            down_seg, _ = self.create_down_seg(latent_in)
-
-            loss_dict = {}
-
-            if sign == 'realistic':
-                ce_loss = self.loss_builder.cross_entropy_loss_wo_background(down_seg, target_mask)
-                ce_loss += self.loss_builder.cross_entropy_loss_only_background(down_seg, ggg)
-            else:
-                ce_loss = self.loss_builder.cross_entropy_loss(down_seg, target_mask)
-
-            loss_dict["ce_loss"] = ce_loss.item()
-            loss = ce_loss
-
-            loss.backward()
-            optimizer_align.step()
-
-        gen_seg_target = torch.argmax(down_seg, dim=1).long()
-        # free_mask = hair_mask1 * (1 - hair_mask2)
-        # target_mask = torch.where((free_mask == 1) * (gen_seg_target!=0), gen_seg_target, previouse_target_mask)
-        target_mask = torch.where((OB_region.to(device).unsqueeze(0)) * (gen_seg_target != 0), gen_seg_target, previouse_target_mask)
-        
-        # ------------------------------------------------------
-        """
-
-        
-        """
-        # This is for a loss that also takes into account the percentage of the area being hair
-        # This will help with hair that fades in and out of the background (prolly)
-        # it keeps the hair percentages and keeps everything else as binary
-        target_hair_percentages = torch.zeros((1, *target_mask.shape[-2:])).long().cuda()
-        target_hair_percentages[0] = down_seg2[0, 10]
-        """
         
         # Visualize the hair
-        # plt.imshow(target_mask_hair_percentages[0, 10].clone().cpu().numpy())
-        # plt.savefig("./test.png")
-
         hair_mask_target = torch.where(target_mask == CLASSES["hair"], torch.ones_like(target_mask), torch.zeros_like(target_mask))
         hair_mask_target = hair_mask_target.float().unsqueeze(0)
         
@@ -259,7 +137,166 @@ class Alignment(nn.Module):
             save_vis_mask(img_path1, img_path2, sign, masks_dir, target_mask.squeeze().cpu())
 
         return target_mask, hair_mask_target, hair_mask1, hair_mask2
+
+    def hair_interpolate_mask_updater(self, hair_mask2, mask1_npz, mask2_npz):
+        # Loops through each y index and uses face keypoints to make sure hair isn't covering the face where its nto supposed to
+
+        original_hair_mask = hair_mask2.clone()
         
+        img1_left_points = mask1_npz["left_points"]
+        img1_right_points = mask1_npz["right_points"]
+        
+        img2_left_points = mask2_npz["left_points"]
+        img2_right_points = mask2_npz["right_points"]
+        
+        img_center = 256
+        
+        hair_mask2_left = original_hair_mask.clone()
+        hair_mask2_left[:, :, img_center:] = 0
+        
+        hair_mask2_right = original_hair_mask.clone()
+        hair_mask2_right[:, :, :img_center] = 0
+        
+        hair_left_points = img_center * 2 - torch.argmax(torch.flip(hair_mask2_left, dims=[2]), axis=2)[0]
+        hair_right_points = torch.argmax(hair_mask2_right, axis=2)[0]
+
+        img2_left_x_list, img2_right_x_list = self.create_x_points(img2_left_points, img2_right_points)
+        
+        img1_left_x_min, img1_left_x_max = img1_left_points.min(axis=0)[0], img1_left_points.max(axis=0)[0]
+        img1_left_size = img1_left_x_max - img1_left_x_min + 1
+        
+        img1_right_x_min, img1_right_x_max = img1_right_points.min(axis=0)[0], img1_right_points.max(axis=0)[0]
+        img1_right_size = img1_right_x_max - img1_right_x_min + 1
+
+        # Fix relative size of the right and left size of the face
+        for img1_i in range(img1_left_points.shape[0]):
+            current_y = img1_left_points[img1_i, 1]
+            # img2_i = int(img1_i / img1_left_points.shape[0] * img2_left_points.shape[0])
+
+            if hair_left_points[current_y] != 0 and hair_left_points[current_y] != img_center * 2:
+                x_perc = (img1_left_points[img1_i, 0] - img1_left_x_min) / img1_left_size
+                img_2_x_idx = int(x_perc * img2_left_x_list.shape[0])
+                img2_i = int(img2_left_x_list[img_2_x_idx] - img2_left_points[0, 1])
+                
+                left_hair_distance2 = hair_left_points[current_y] - img2_left_points[img2_i, 0]
+                hair_move_point = left_hair_distance2 + img1_left_points[img1_i, 0]
+                
+                add_amount = hair_move_point - hair_left_points[current_y]
+                if add_amount > 0:
+                    hair_mask2[:, current_y, hair_left_points[current_y]: hair_left_points[current_y] + add_amount] = 1
+                else:
+                    hair_mask2[:, current_y, hair_left_points[current_y] + add_amount: hair_left_points[current_y]] = 0
+
+            if hair_right_points[current_y] != 0 and hair_right_points[current_y] != img_center * 2:
+                x_perc = (img1_right_points[img1_i, 0] - img1_right_x_min) / img1_right_size
+                img_2_x_idx = int(x_perc * img2_right_x_list.shape[0])
+                img2_i = int(img2_right_x_list[img_2_x_idx] - img2_right_points[0, 1])
+                
+                right_hair_distance2 = hair_right_points[current_y] - img2_right_points[img2_i, 0]
+                hair_move_point = right_hair_distance2 + img1_right_points[img1_i, 0]
+
+                add_amount = hair_right_points[current_y] - hair_move_point
+                if add_amount > 0:
+                    hair_mask2[:, current_y, hair_right_points[current_y] - add_amount: hair_right_points[current_y]] = 1
+                else:
+                    hair_mask2[:, current_y, hair_right_points[current_y]: hair_right_points[current_y] - add_amount] = 0
+        
+        # Loops through each x index to make sure bangs are in the right place
+        img1_brows_points = mask1_npz["brows_points"]
+        img2_brows_points = mask2_npz["brows_points"]
+        
+        hair_mask2_top = original_hair_mask.clone()
+        hair_top_points = img_center * 2 - torch.argmax(torch.flip(hair_mask2_top, dims=[1]), axis=1)[0]
+        for img1_i in range(img1_brows_points.shape[0]):
+            current_x = img1_brows_points[img1_i, 0]
+
+            img2_i = int(img1_i / img1_brows_points.shape[0] * img2_brows_points.shape[0])
+
+            if hair_top_points[current_x] < img_center:
+                top_hair_distance2 = hair_top_points[current_x] - img2_brows_points[img2_i, 1]
+                hair_move_point = top_hair_distance2 + img1_brows_points[img1_i, 1]
+                
+                add_amount = hair_move_point - hair_top_points[current_x]
+                if add_amount > 0:
+                    hair_mask2[:, hair_top_points[current_x]: hair_move_point, current_x] = 1
+                else:
+                    hair_mask2[:, hair_move_point: hair_top_points[current_x], current_x] = 0
+                
+        """
+        # Smooth the border boundary between jaw stop point
+        smooth_length = 30
+
+        end_point_y = img1_left_points[0, 1] + 1
+        start_point_y = max(0, end_point_y - smooth_length)
+        
+        left_smooth_point_x = img_center - torch.argmax(torch.flip(hair_mask2[0, start_point_y: end_point_y, :img_center], dims=[1]), axis=1)
+        right_smooth_point_x = img_center + torch.argmax(hair_mask2[0, start_point_y: end_point_y, img_center:], axis=1)
+
+        do_left = left_smooth_point_x[0] != 0 and left_smooth_point_x[0] != img_center * 2 and left_smooth_point_x[-1] != 0 and left_smooth_point_x[-1] != img_center * 2
+        do_right = right_smooth_point_x[0] != 0 and right_smooth_point_x[0] != img_center * 2 and right_smooth_point_x[-1] != 0 and right_smooth_point_x[-1] != img_center * 2
+
+        left_mult_factor = (left_smooth_point_x[-1] - left_smooth_point_x[0]) / (end_point_y - start_point_y)
+        right_mult_factor = (right_smooth_point_x[-1] - right_smooth_point_x[0]) / (end_point_y - start_point_y)
+        
+        for i in range(end_point_y - start_point_y):
+            current_y = start_point_y + i
+            if do_left:
+                hair_move_point = int(left_mult_factor * i + left_smooth_point_x[0])
+                add_amount = hair_move_point - left_smooth_point_x[i]
+                
+                if add_amount > 0:
+                    hair_mask2[:, current_y, hair_left_points[current_y]: hair_left_points[current_y] + add_amount] = 1
+                else:
+                    hair_mask2[:, current_y, hair_left_points[current_y] + add_amount: hair_left_points[current_y]] = 0
+
+            if do_right:
+                hair_move_point = int(right_mult_factor * i + right_smooth_point_x[0])
+                add_amount = right_smooth_point_x[i] - hair_move_point
+
+                add_amount = hair_right_points[current_y] - hair_move_point
+                if add_amount > 0:
+                    hair_mask2[:, current_y, hair_right_points[current_y] - add_amount: hair_right_points[current_y]] = 1
+                else:
+                    hair_mask2[:, current_y, hair_right_points[current_y]: hair_right_points[current_y] - add_amount] = 0
+        """
+        
+        return hair_mask2
+
+    def create_x_points(self, img2_left_points, img2_right_points):
+        img2_left_x_min, img2_left_x_max = img2_left_points.min(axis=0)[0], img2_left_points.max(axis=0)[0]
+        img2_right_x_min, img2_right_x_max = img2_right_points.min(axis=0)[0], img2_right_points.max(axis=0)[0]
+
+        img2_left_x_list = np.ones((img2_left_x_max - img2_left_x_min + 1)) * -1
+        img2_right_x_list = np.ones((img2_right_x_max - img2_right_x_min + 1)) * -1
+
+        # instantiate left array with known
+        for img2_i in range(img2_left_points.shape[0]):
+            cur_x = img2_left_points[img2_i, 0]
+            new_i = cur_x - img2_left_x_min
+            img2_left_x_list[new_i] = img2_left_points[img2_i, 1]
+
+        # instantiate right array with known
+        for img2_i in range(img2_right_points.shape[0]):
+            cur_x = img2_right_points[img2_i, 0]
+            new_i = cur_x - img2_right_x_min
+            img2_right_x_list[new_i] = img2_right_points[img2_i, 1]
+
+        # Fill in the left holes if they are any
+        previous_y = img2_left_x_list[0]
+        for i in range(img2_left_x_list.shape[0]):
+            if img2_left_x_list[i] == -1:
+                img2_left_x_list[i] = previous_y
+            previous_y = img2_left_x_list[i]
+
+        # Fill in the right holes if they are any
+        previous_y = img2_right_points[0]
+        for i in range(img2_right_x_list.shape[0]):
+            if img2_right_x_list[i] == -1:
+                img2_right_x_list[i] = previous_y
+            previous_y = img2_right_x_list[i]
+            
+        return img2_left_x_list, img2_right_x_list
+
     def setup_align_optimizer(self, cur_net, latent_path=None, device="cuda"):
         if latent_path:
             latent_W = torch.from_numpy(convert_npy_code(np.load(latent_path))).to(device).requires_grad_(True)
@@ -276,7 +313,7 @@ class Alignment(nn.Module):
 
         return optimizer_align, latent_W
 
-    def create_down_seg(self, cur_seg, cur_net, latent_in, face_mode=True):
+    def create_down_seg(self, cur_seg, cur_net, latent_in):
         gen_im, _ = cur_net.generator([latent_in], input_is_latent=True, return_latents=False,
                                        start_layer=0, end_layer=8)
         gen_im_0_1 = (gen_im + 1) / 2
@@ -343,22 +380,20 @@ class Alignment(nn.Module):
 
             cur_target_mask = target_mask.to(cur_device)
             
-            pbar = tqdm(range(self.opts.align_steps1), desc='Align Step 1', leave=False)
+            pbar = tqdm(range(self.opts.align_steps1), desc='Align Step 1', leave=False, disable=self.opts.disable_progress_bar)
             for step in pbar:
-                face_loss = step % self.opts.body_alternate_number != 0
-                
                 optimizer_align.zero_grad()
                 latent_in = torch.cat([latent_align_1[:, :6, :], latent_1[:, 6:, :]], dim=1)
-                down_seg, _ = self.create_down_seg(cur_seg, cur_net, latent_in, face_mode=face_loss)
-    
+                down_seg, _ = self.create_down_seg(cur_seg, cur_net, latent_in)
+                
                 loss_dict = {}
-                loss = 0
                 
                 # Cross Entropy Loss
                 ce_loss = cur_loss_builder.cross_entropy_loss(down_seg, cur_target_mask)
                 loss_dict["ce_loss"] = ce_loss.item()
                 loss = ce_loss
-    
+                # print(loss_dict)
+                
                 loss.backward()
                 optimizer_align.step()
     
@@ -388,13 +423,11 @@ class Alignment(nn.Module):
                                            torch.zeros_like(current_mask_tmp))
                 HM_Structure = F.interpolate(HM_Structure.float().unsqueeze(0), size=(256, 256), mode='nearest')
     
-            pbar = tqdm(range(self.opts.align_steps2), desc='Align Step 2', leave=False)
+            pbar = tqdm(range(self.opts.align_steps2), desc='Align Step 2', leave=False, disable=self.opts.disable_progress_bar)
             for step in pbar:
-                face_loss = step % self.opts.body_alternate_number != 0
-                
                 optimizer_align.zero_grad()
                 latent_in = torch.cat([latent_align_2[:, :6, :], cur_latent_2[:, 6:, :]], dim=1)
-                down_seg, gen_im = self.create_down_seg(cur_seg, cur_net, latent_in, face_mode=face_loss)
+                down_seg, gen_im = self.create_down_seg(cur_seg, cur_net, latent_in)
     
                 Current_Mask = torch.argmax(down_seg, dim=1).long()
                 HM_G_512 = torch.where(Current_Mask == 10, torch.ones_like(Current_Mask),

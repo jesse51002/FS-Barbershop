@@ -1,6 +1,9 @@
 import os
 import tarfile
+
+os.environ["CRYPTOGRAPHY_OPENSSL_NO_LEGACY"] = "1"
 import boto3
+
 from datetime import datetime
 import time
 

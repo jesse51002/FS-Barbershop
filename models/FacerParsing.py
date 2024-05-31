@@ -156,57 +156,80 @@ class FacerKeypoints(Model):
 
         return keypoints
 
-    def create_poly_equation(self, keypoints, degree=4):
+    def poly_interpolate(self, keypoints, jaw_degree=4, brow_degree=3):
         left_start = 0
         middle = 8
         right_end = 16
+
+        brows_start = 17
+        brows_end = 26
 
         np_points = keypoints.data.cpu().numpy()
 
         right = []
         left = []
+        brows = []
+        
         y_range = np.zeros((np_points.shape[0], 2))
+        x_range = np.zeros((np_points.shape[0], 2))
 
         for i in range(np_points.shape[0]):
+            # Sets ranges
             y_range[i, 0] = np_points[i, left_start, 1]
             y_range[i, 1] = np_points[i, middle, 1]
-            
+
+            x_range[i, 0] = np_points[i, left_start, 0]
+            x_range[i, 1] = np_points[i, right_end, 0]
+
+            # Creates interpolation formulas
             right_points = np_points[i, middle: right_end + 1]
-            right_coefs = np.polyfit(right_points[:, 1], right_points[:, 0], degree)
+            right_coefs = np.polyfit(right_points[:, 1], right_points[:, 0], jaw_degree)
     
             left_points = np_points[i, left_start: middle + 1]
-            left_coefs = np.polyfit(left_points[:, 1], left_points[:, 0], degree)
+            left_coefs = np.polyfit(left_points[:, 1], left_points[:, 0], jaw_degree)
 
+            brows_points = np_points[i, brows_start: brows_end + 1]
+            # Adds the jaw starts
+            brows_points = np.concatenate(
+                (
+                    np.expand_dims(np_points[i, left_start], 0),
+                    brows_points,
+                    np.expand_dims(np_points[i, right_end], 0)
+                ),
+                axis=0
+            )
+            brow_coefs = np.polyfit(brows_points[:, 0], brows_points[:, 1], brow_degree)
+
+            # Appeds then to the list
             right.append(right_coefs)
             left.append(left_coefs)
+            brows.append(brow_coefs)
         
-        right = np.stack(right, axis=0)
-        left = np.stack(left, axis=0)
+        r_coef = np.stack(right, axis=0)
+        l_coef = np.stack(left, axis=0)
+        b_coef = np.stack(brows, axis=0)
         
-        return right, left, y_range
-
-    def inference_poly_eq(self, r_coef, l_coef, y_range):
         outputs = []
 
         def InferPoly(y_list, coef):
             p = np.poly1d(coef)
-
             return p(y_list)
-            # print(coef)
-            #return sum([coef[p]*y_list**(coef.shape[0] - p - 1) for p in range(coef.shape[0])])
         
         for i in range(y_range.shape[0]):
-            
+            # Inferences jaw points
             y_list = np.arange(y_range[i, 0], y_range[i, 1], 1).astype(np.int32)
-
             r_answers = np.stack([InferPoly(y_list, r_coef[i]), y_list], axis=1).astype(np.int32)
             l_answers = np.stack([InferPoly(y_list, l_coef[i]), y_list], axis=1).astype(np.int32)
 
-            outputs.append({"right": r_answers, "left": l_answers})
+            # Inferences brow points
+            x_list = np.arange(x_range[i, 0], x_range[i, 1], 1).astype(np.int32)
+            b_answers = np.stack([x_list, InferPoly(x_list, b_coef[i])], axis=1).astype(np.int32)
+
+            outputs.append({"right": r_answers, "left": l_answers, "brows": b_answers})
         
         return outputs
         
-
+        
 def facer_to_bisnet(facer_seg):
     """
     Input (Facer segmentation):
@@ -234,9 +257,11 @@ def facer_to_bisnet(facer_seg):
 
 
 if __name__ == "__main__":
-    # path = "input/face/braids2.png"
-    for img_name in ["short_hair.png", "werewolf.png"]:  # os.listdir("input/face/")[:5]:
-        path = os.path.join("input/face/", img_name)
+
+    base_dir = "input/unprocessed/"  # "input/face/"
+    
+    for img_name in os.listdir(base_dir):  # ["pencil_straight.jpg"]:  # 
+        path = os.path.join(base_dir, img_name)
         
         if not os.path.isfile(path):
             continue
@@ -251,19 +276,21 @@ if __name__ == "__main__":
         start = time.time()
         keypoints = keypoint_model.inference(torch_img)
 
-        right_coef, left_coef, y_range = keypoint_model.create_poly_equation(keypoints['alignment'])
-        equation_results = keypoint_model.inference_poly_eq(right_coef, left_coef, y_range)
+        equation_results = keypoint_model.poly_interpolate(keypoints['alignment'])
 
+        white = np.array([255, 255, 255])
         for i in range(len(equation_results)):
             current_results = equation_results[i]
             for j in range(current_results["left"].shape[0]):
-                white = np.array([255, 255, 255])
                 np_image[current_results["left"][j, 1]: current_results["left"][j, 1] + 10, current_results["left"][j, 0]: current_results["left"][j, 0] + 10] = white
                 np_image[current_results["right"][j, 1]: current_results["right"][j, 1] + 10, current_results["right"][j, 0]: current_results["right"][j, 0] + 10] = white
+                
+            for j in range(current_results["brows"].shape[0]):
+                np_image[current_results["brows"][j, 1]: current_results["brows"][j, 1] + 10, current_results["brows"][j, 0]: current_results["brows"][j, 0] + 10] = white
             
         print("Finsihed in:", time.time() - start)
 
-        for pts in keypoints['alignment']:
+        for pts in keypoints['alignment'][:, 36:48]:
             np_image = facer.draw_landmarks(np_image, None, pts.cpu().numpy())
 
         output_img = Image.fromarray(np_image)

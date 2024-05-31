@@ -5,6 +5,8 @@ cuda_12.1.0_530.30.02_linux.run
 input/
 unprocessed/
 test_output/
+preset_data/
+.ipynb_checkpoints/
 
 
   

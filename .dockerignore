@@ -1,5 +1,7 @@
 pretrained_models/
-unprocessed/*
-input/face/*
-output/*
+unprocessed/
+input/
+output/
 tools/
+presets/
+cuda_12.1.0_530.30.02_linux.run

@@ -55,7 +55,8 @@ class Preprocessor(nn.Module):
             if os.path.isfile(output_img_pth):
                 imgs.pop(i)
                 i -= 1
-                print("Alignment already done, skipping", im)
+                if not self.opts.disable_progress_bar:
+                    print("Alignment already done, skipping", im)
             i += 1
         
         if len(imgs) == 0:
@@ -135,9 +136,7 @@ class Preprocessor(nn.Module):
         :param filepath: str
         :return: list of PIL Images
         """
-    
-        imgs = []
- 
+        
         lm = keypoints
         
         lm_chin = lm[0: 17]  # left-right
@@ -145,8 +144,8 @@ class Preprocessor(nn.Module):
         lm_eyebrow_right = lm[22: 27]  # left-right
         lm_nose = lm[27: 31]  # top-down
         lm_nostrils = lm[31: 36]  # top-down
-        lm_eye_left = lm[36: 42]  # left-clockwise
-        lm_eye_right = lm[42: 48]  # left-clockwise
+        lm_eye_left = lm[36: 42]   # np.expand_dims(lm[36], 0)  #  # left-clockwise
+        lm_eye_right = lm[42: 48]  # np.expand_dims(lm[45], 0)  #   # left-clockwise
         lm_mouth_outer = lm[48: 60]  # left-clockwise
         lm_mouth_inner = lm[60: 68]  # left-clockwise
     
@@ -159,7 +158,7 @@ class Preprocessor(nn.Module):
         mouth_right = lm_mouth_outer[6]
         mouth_avg = (mouth_left + mouth_right) * 0.5
         eye_to_mouth = mouth_avg - eye_avg
-    
+        
         # Choose oriented crop rectangle.
         x = eye_to_eye - np.flipud(eye_to_mouth) * [-1, 1]
         x /= np.hypot(*x)
@@ -217,11 +216,8 @@ class Preprocessor(nn.Module):
                             PIL.Image.BILINEAR)
         if output_size < transform_size:
             img = img.resize((output_size, output_size), PIL.Image.LANCZOS)
-    
-        # Save aligned image.
-        imgs.append(img)
-        
-        return imgs
+   
+        return [img]
         
 
 if __name__ == "__main__":
@@ -244,7 +240,7 @@ if __name__ == "__main__":
     if ipynb_bitch in img_pths:
         img_pths.remove(ipynb_bitch)
 
-    img_pths = ["input/unprocessed/pink-blonde.jpg"]
+    # img_pths = ["input/unprocessed/pink-blonde.jpg"]
 
     start = time.time()
     preprocessor.preprocess_imgs(img_pths)

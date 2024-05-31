@@ -6,15 +6,23 @@ RUN apt update && apt install --yes ninja-build git-lfs
 
 RUN pip install --upgrade pip setuptools
 RUN pip install dlib==19.24.2 ftfy gdown imageio-ffmpeg scikit-image supervision timm ultralytics typing_extensions
-# RUN pip install git+https://github.com/openai/CLIP.git
 RUN pip install git+https://github.com/FacePerceiver/facer.git@main
 
 RUN pip uninstall -y opencv-python opencv-python-headless
 RUN pip install opencv-python-headless
 
+# Adds torch cache models
+ADD vgg16-397923af.pth /root/.cache/torch/hub/checkpoints/vgg16-397923af.pth
+ADD resnet18-5c106cde.pth /root/.cache/torch/hub/checkpoints/resnet18-5c106cde.pth
+
+# Adds code base
 ENV PATH="/opt/ml/code:${PATH}"
 ENV SAGEMAKER_SUBMIT_DIRECTORY /opt/ml/code
 ADD . /opt/ml/code
+
+# Remove the torch cache models from code directory
+RUN rm -rf /opt/ml/code/vgg16-397923af.pth
+RUN rm -rf /opt/ml/code/resnet18-5c106cde.pth
 
 RUN python /opt/ml/code/deployment/preloader.py
 

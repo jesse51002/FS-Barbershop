@@ -76,8 +76,7 @@ class SegMaker(nn.Module):
         human_segs = human_segs.data.cpu().numpy()
         keypoints = keypoints
         
-        right_coef, left_coef, y_range = self.keypoint_model.create_poly_equation(keypoints)
-        equation_results = self.keypoint_model.inference_poly_eq(right_coef, left_coef, y_range)
+        equation_results = self.keypoint_model.poly_interpolate(keypoints)
 
         for i in range(len(imgs)):
             img_path = imgs[i]
@@ -88,13 +87,14 @@ class SegMaker(nn.Module):
             os.makedirs(save_dir, exist_ok=True)
             
             name = os.path.basename(img_path).split(".")[0]
-            # Saves face parsing
-            # np.save(os.path.join(save_dir, name) + "_mask.npy", face_seg)
-            # Saves face keypoints
-            # np.save(os.path.join(save_dir, name) + "_left_points.npy", equation_results[i]["left"])
-            # np.save(os.path.join(save_dir, name) + "_right_points.npy", equation_results[i]["right"])
 
-            np.savez(os.path.join(save_dir, name) + "_mask.npz", mask=face_seg, left_points=equation_results[i]["left"], right_points=equation_results[i]["right"])
+            np.savez(
+                os.path.join(save_dir, name) + "_mask.npz",
+                mask=face_seg, 
+                left_points=equation_results[i]["left"],
+                right_points=equation_results[i]["right"],
+                brows_points=equation_results[i]["brows"]
+            )
             
             rgb_img = vis_seg(face_seg)
             vis_img = Image.fromarray(rgb_img)

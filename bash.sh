@@ -6,9 +6,9 @@
 #    --W_steps=1000 --FS_steps=200  \
 #    --hair_perc_lambda 0 --body_alternate_number 5 --opt_name adam
 
-
-python main.py --im_path1 short_hair.png --im_path2 werewolf.png --im_path3 werewolf.png \
+    
+python main.py --im_path1 IMG_3248.png --im_path2 shoulder_length_wavy_wispy_bangs.png --im_path3 shoulder_length_wavy_wispy_bangs.png \
     --sign realistic  --smooth 5 --learning_rate 0.05 \
-    --align_steps1 100 --align_steps2 100 --blend_steps 100 \
-    --W_steps=150 --FS_steps=150  \
-    --hair_perc_lambda 0 --style_lambda 200000 --body_alternate_number 5
+    --align_steps1 80 --align_steps2 120 --blend_steps 100 \
+    --W_steps=300 --FS_steps=150  \
+    --style_lambda 200000 --body_alternate_number 5 --align_color_lambda 0.0001

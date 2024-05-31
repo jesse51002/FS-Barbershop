@@ -3,12 +3,13 @@ sys.path.insert(0,'./')
 sys.path.insert(0,'./models/styleganxl')
 
 import torch
-from torch import nn 
+from torch import nn
 import legacy
 import dnnlib
 import numpy as np
 import os
 import time
+import tqdm
 
 class PixelNorm(nn.Module):
     def __init__(self):
@@ -23,7 +24,7 @@ class Net(nn.Module):
         self.opts = opts
         self.cal_layer_num()
         self.load_weights()
-        self.load_PCA_model()
+        # self.load_PCA_model()
 
     def load_weights(self):
         print('Loading networks from "%s"...' % self.opts.ckpt)
@@ -126,14 +127,42 @@ if __name__ == "__main__":
     net = Net(opt())
         
     latent = torch.randn((1, 20, 512), dtype=torch.float32).clone().cuda()
+
+    # Average generation time 0.05306898355484009
     
-    start = time.time()
-    for i in range(21):
-        if i == 1:
-            print("Starting image gen")
-            start = time.time()
-        
-        net.create_img_from_latent(latent)
+    net.create_img_from_latent(latent)
+
+    optimizer_align, latent_align_1 = self.setup_align_optimizer(cur_net, latent_W_path_1, device=cur_device)
+
+    cur_target_mask = target_mask.to(cur_device)
+
+    align_steps = 50
+
+    def create_down_seg(cur_seg, net, latent_in):
+        # Fill in
+        print()
+            
+    pbar = tqdm(range(align_steps), desc='Align Step 1', leave=False, disable=False)
+    for step in pbar:
+        optimizer_align.zero_grad()
+        latent_in = torch.cat([latent_align_1[:, :6, :], latent_1[:, 6:, :]], dim=1)
+        down_seg, _ = create_down_seg(cur_seg, net, latent_in)
+                
+        loss_dict = {}
+                
+        # Cross Entropy Loss
+        ce_loss = cur_loss_builder.cross_entropy_loss(down_seg, cur_target_mask)
+        loss_dict["ce_loss"] = ce_loss.item()
+        loss = ce_loss
+        # print(loss_dict)
+                
+        loss.backward()
+        optimizer_align.step()
+    
+    intermediate_align, _ = cur_net.generator([latent_in], input_is_latent=True, return_latents=False,
+                                                       start_layer=0, end_layer=3)
+    intermediate_align = intermediate_align.clone().detach()
+
     
     print("Finsihed image gen in", (time.time() - start) / 20)
 

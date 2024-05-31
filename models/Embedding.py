@@ -111,10 +111,10 @@ class Embedding(nn.Module):
             
         self.setup_dataloader(image_path=image_path)
         device = self.opts.device[0]
-        ibar = tqdm(self.dataloader, desc='Images')
+        ibar = tqdm(self.dataloader, desc='Images', disable=self.opts.disable_progress_bar)
         for ref_im_H, ref_im_L, ref_name in ibar:
             optimizer_W, latent = self.setup_W_optimizer()
-            pbar = tqdm(range(self.opts.W_steps), desc='Embedding', leave=False)
+            pbar = tqdm(range(self.opts.W_steps), desc='Embedding', leave=False, disable=self.opts.disable_progress_bar)
             for step in pbar:
                 optimizer_W.zero_grad()
                 latent_in = torch.stack(latent).unsqueeze(0)
@@ -162,7 +162,7 @@ class Embedding(nn.Module):
         self.setup_dataloader(image_path=image_path)
         output_dir = self.opts.output_dir
         device = self.opts.device[0]
-        ibar = tqdm(self.dataloader, desc='Images')
+        ibar = tqdm(self.dataloader, desc='Images', disable=self.opts.disable_progress_bar)
         for ref_im_H, ref_im_L, ref_name in ibar:
 
             latent_W_path = os.path.join(output_dir, 'W+', f'{ref_name[0]}.npy')
@@ -170,7 +170,7 @@ class Embedding(nn.Module):
             F_init, _ = self.net.generator([latent_W], input_is_latent=True, return_latents=False, start_layer=0, end_layer=3)
             optimizer_FS, latent_F, latent_S = self.setup_FS_optimizer(latent_W, F_init)
 
-            pbar = tqdm(range(self.opts.FS_steps), desc='Embedding', leave=False)
+            pbar = tqdm(range(self.opts.FS_steps), desc='Embedding', leave=False, disable=self.opts.disable_progress_bar)
             for step in pbar:
 
                 optimizer_FS.zero_grad()
