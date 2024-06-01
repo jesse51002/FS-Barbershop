@@ -129,40 +129,5 @@ if __name__ == "__main__":
     latent = torch.randn((1, 20, 512), dtype=torch.float32).clone().cuda()
 
     # Average generation time 0.05306898355484009
-    
-    net.create_img_from_latent(latent)
-
-    optimizer_align, latent_align_1 = self.setup_align_optimizer(cur_net, latent_W_path_1, device=cur_device)
-
-    cur_target_mask = target_mask.to(cur_device)
-
-    align_steps = 50
-
-    def create_down_seg(cur_seg, net, latent_in):
-        # Fill in
-        print()
-            
-    pbar = tqdm(range(align_steps), desc='Align Step 1', leave=False, disable=False)
-    for step in pbar:
-        optimizer_align.zero_grad()
-        latent_in = torch.cat([latent_align_1[:, :6, :], latent_1[:, 6:, :]], dim=1)
-        down_seg, _ = create_down_seg(cur_seg, net, latent_in)
-                
-        loss_dict = {}
-                
-        # Cross Entropy Loss
-        ce_loss = cur_loss_builder.cross_entropy_loss(down_seg, cur_target_mask)
-        loss_dict["ce_loss"] = ce_loss.item()
-        loss = ce_loss
-        # print(loss_dict)
-                
-        loss.backward()
-        optimizer_align.step()
-    
-    intermediate_align, _ = cur_net.generator([latent_in], input_is_latent=True, return_latents=False,
-                                                       start_layer=0, end_layer=3)
-    intermediate_align = intermediate_align.clone().detach()
-
-    
-    print("Finsihed image gen in", (time.time() - start) / 20)
+    gen_im = net.create_img_from_latent(latent)
 

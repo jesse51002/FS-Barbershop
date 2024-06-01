@@ -16,6 +16,13 @@ from models.Net import Net
 
 
 def main(args):
+    """
+    The main function that performs image processing tasks using various models.
+    Parameters:
+        - args: The arguments passed to the function. It should contain the following attributes:
+    Returns:
+        None
+"""
     # args.device = ["cuda:1", "cuda:2"]
     
     assert len(args.device) > 0, f"0 devices was supplied {args.device}"

@@ -16,12 +16,13 @@ from utils.image_utils import load_image, dilate_erosion_mask_path, dilate_erosi
 from utils.model_utils import download_weight
 from utils.seg_utils import expand_face_mask
 from models.FacerParsing import facer_to_bisnet
+from models.ModelBase import Model
 
 toPIL = torchvision.transforms.ToPILImage()
 
 
 class Blending(nn.Module):
-    def __init__(self, opts, net=None, facer=None, background_remover=None, seg=None):
+    def __init__(self, opts, net, facer: Model, background_remover: Model, seg):
         super(Blending, self).__init__()
         
         self.opts = opts
@@ -33,24 +34,52 @@ class Blending(nn.Module):
         self.load_downsampling()
         self.setup_blend_loss_builder()
 
-    def set_opts(self, opts):
+    def set_opts(self, opts) -> None:
         self.opts = opts
     
-    def load_downsampling(self):
+    def load_downsampling(self) -> None:
         self.downsample = BicubicDownSample(factor=self.opts.size // 512)
         self.downsample_256 = BicubicDownSample(factor=self.opts.size // 256)
 
     def setup_blend_optimizer(self):
+        """
+        Set up the blend optimizer.
+
+        This function initializes the blend optimizer and returns it along with the interpolation latent tensor.
+
+        Returns:
+            opt_blend (ClampOptimizer): The blend optimizer object.
+            interpolation_latent (torch.Tensor): The interpolation latent tensor.
+
+        """
+        
         interpolation_latent = torch.zeros((18, 512), requires_grad=True, device=self.opts.device[0])
 
         opt_blend = ClampOptimizer(torch.optim.Adam, [interpolation_latent], lr=self.opts.learning_rate)
 
         return opt_blend, interpolation_latent
 
-    def setup_blend_loss_builder(self):
+    def setup_blend_loss_builder(self) -> None:
         self.loss_builder = BlendLossBuilder(self.opts.device[0])
 
-    def blend_images(self, img_path1, img_path2, img_path3, sign='realistic'):
+    def blend_images(self, img_path1: str, img_path2: str, img_path3: str, sign: str='realistic') -> None:
+        """
+        Blends two images based on their latent spaces and saves the result.
+
+        Args:
+            img_path1 (str): Path to the first image.
+            img_path2 (str): Path to the second image.
+            img_path3 (str): Path to the third image.
+            sign (str, optional): The sign used for saving the blended image. Defaults to 'realistic'.
+
+        Returns:
+            None
+            
+        Description:
+            This function blends two images based on their latent spaces and saves the result.
+            This blending is done to ensure the hair and face look similar to the original images.
+        """
+        
         device = self.opts.device[0]
         output_dir = self.opts.output_dir
 
@@ -128,7 +157,24 @@ class Blending(nn.Module):
 
         self.save_blend_results(im_name_1, im_name_2, im_name_3, sign, I_G, latent_mixed, latent_F_mixed)
 
-    def save_blend_results(self, im_name_1, im_name_2, im_name_3, sign,  gen_im, latent_in, latent_F):
+    def save_blend_results(self, im_name_1: str, im_name_2: str, im_name_3: str, sign: str,  gen_im: torch.Tensor, latent_in: torch.Tensor, latent_F: torch.Tensor) -> None:
+        """
+        Save the blended image and its associated metadata to disk.
+        Args:
+            im_name_1 (str): The name of the first input image.
+            im_name_2 (str): The name of the second input image.
+            im_name_3 (str): The name of the third input image.
+            sign (str): The sign used for saving the blended image.
+            gen_im (torch.Tensor): The generated blended image.
+            latent_in (torch.Tensor): The latent representation of the first input image.
+            latent_F (torch.Tensor): The latent representation of the second input image.
+        Returns:
+            None
+        
+        Description:
+            Saves the blended image and its associated metadata to disk.
+        """
+        
         save_im = toPIL(((gen_im[0] + 1) / 2).detach().cpu().clamp(0, 1))
 
         save_dir = os.path.join(self.opts.output_dir, 'Blend_{}'.format(sign))

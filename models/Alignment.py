@@ -27,6 +27,24 @@ COLOR_MATCH_QUARTILE = 0.75
 class Alignment(nn.Module):
 
     def __init__(self, opts, net0=None, net1=None, seg0=None, seg1=None):
+        """
+        Initializes an instance of the Alignment class.
+        Args:
+            opts (object): An object containing options for the alignment.
+            net0 (object): The first gpu neural network.
+            net1 (object, optional): The second gpu neural network. Defaults to None.
+            seg0 (object): The first gpu segmentation.
+            seg1 (object, optional): The second gpu segmentation. Defaults to None.
+        Returns:
+            None
+            
+        Description:
+            This function initializes an instance of the Alignment class.
+            It sets the options, neural networks, and segmentations.
+            It also sets the mean and standard deviation of the segmentations based on the device specified in the options. 
+            If the options specify multi-GPU, it sets the mean and standard deviation of the second segmentation based on the second device. It then loads the downsampling and sets up the alignment loss builder.
+        """        
+        
         super(Alignment, self).__init__()
         
         self.opts = opts
@@ -44,19 +62,38 @@ class Alignment(nn.Module):
         self.load_downsampling()
         self.setup_align_loss_builder()
 
-    def set_opts(self, opts):
+    def set_opts(self, opts) -> None:
         self.opts = opts
 
-    def load_downsampling(self):
+    def load_downsampling(self) -> None:
         self.downsample = BicubicDownSample(factor=self.opts.size // 512)
         self.downsample_256 = BicubicDownSample(factor=self.opts.size // 256)
 
-    def setup_align_loss_builder(self):
+    def setup_align_loss_builder(self) -> None:
         self.loss_builder0 = AlignLossBuilder(self.opts, num_classes=len(CLASSES), device=self.opts.device[0])
         if self.opts.is_multi_gpu:
             self.loss_builder1 = AlignLossBuilder(self.opts, num_classes=len(CLASSES), device=self.opts.device[1])
             
-    def create_target_segmentation_mask(self, img_path1, img_path2, sign, save_intermediate=True):
+    def create_target_segmentation_mask(self, img_path1: str, img_path2: str, sign: str, save_intermediate: bool=True) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+        """
+        Creates a target segmentation mask for two input images.
+
+        Args:
+            img_path1 (str): The path to the first input image.
+            img_path2 (str): The path to the second input image.
+            sign (int): The sign indicating the direction of the hair interpolation.
+            save_intermediate (bool, optional): Whether to save intermediate visualizations. Defaults to True.
+
+        Returns:
+            Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]: A tuple containing the target mask, the hair mask for the first image, the hair mask for the second image, and the updated hair mask for the second image.
+            
+        Description:
+            This function creates a target segmentation mask for two input images.
+            It first loads the masks for the first and second images.
+            It keeps the face from image 1 and the hair from image 2.
+        """
+        
+        
         device = self.opts.device[0]
 
         mask_save_dir = os.path.join(self.opts.output_dir, 'masks')
@@ -138,7 +175,20 @@ class Alignment(nn.Module):
 
         return target_mask, hair_mask_target, hair_mask1, hair_mask2
 
-    def hair_interpolate_mask_updater(self, hair_mask2, mask1_npz, mask2_npz):
+    def hair_interpolate_mask_updater(self, hair_mask2: torch.Tensor, mask1_npz: dict, mask2_npz: dict) -> torch.Tensor:
+        """
+        Interpolates the hair mask based on the provided hair mask, mask1_npz, and mask2_npz.
+        Parameters:
+            hair_mask2 (torch.Tensor): The original hair mask.
+            mask1_npz (dict): The dictionary containing the keypoints of mask1.
+            mask2_npz (dict): The dictionary containing the keypoints of mask2.
+        Returns:
+            torch.Tensor: The interpolated hair mask.
+        
+        Description:
+            Uses the jaw and brows keypoints to figure out where the hair mask should be interpolated to on image 1
+        """        
+        
         # Loops through each y index and uses face keypoints to make sure hair isn't covering the face where its nto supposed to
 
         original_hair_mask = hair_mask2.clone()
@@ -262,7 +312,21 @@ class Alignment(nn.Module):
         
         return hair_mask2
 
-    def create_x_points(self, img2_left_points, img2_right_points):
+    def create_x_points(self, img2_left_points: np.ndarray, img2_right_points: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+        """
+        Parameters:
+            img2_left_points (np.ndarray): An array of shape (n, 2) containing the x and y coordinates of the left points in `img2`.
+            img2_right_points (np.ndarray): An array of shape (n, 2) containing the x and y coordinates of the right points in `img2`.
+
+        Returns:
+            Tuple[np.ndarray, np.ndarray]: A tuple containing two arrays, `img2_left_x_list` and `img2_right_x_list`, that represent the x-coordinates of the left and right points in `img2_left_points` and `img2_right_points`, respectively.
+
+        Description:
+            This returns the y coordinates of each x index
+            This means each index is a relative x index and elemment in the max y position with that x
+            This is used to have a simple way to transalate the y coordinate of imag 1 to img2 based of the realative x coordinates
+        """
+         
         img2_left_x_min, img2_left_x_max = img2_left_points.min(axis=0)[0], img2_left_points.max(axis=0)[0]
         img2_right_x_min, img2_right_x_max = img2_right_points.min(axis=0)[0], img2_right_points.max(axis=0)[0]
 
@@ -297,7 +361,19 @@ class Alignment(nn.Module):
             
         return img2_left_x_list, img2_right_x_list
 
-    def setup_align_optimizer(self, cur_net, latent_path=None, device="cuda"):
+    def setup_align_optimizer(self, cur_net, latent_path: str=None, device="cuda"):
+        """
+        Set up the optimizer for the alignment process.
+
+        Args:
+            cur_net (object): The current network object.
+            latent_path (str, optional): The path to the latent file. Defaults to None.
+            device (str, optional): The device to use for the computation. Defaults to "cuda".
+
+        Returns:
+            tuple: A tuple containing the optimizer and the latent weight tensor.
+        """
+        
         if latent_path:
             latent_W = torch.from_numpy(convert_npy_code(np.load(latent_path))).to(device).requires_grad_(True)
         else:
@@ -313,7 +389,19 @@ class Alignment(nn.Module):
 
         return optimizer_align, latent_W
 
-    def create_down_seg(self, cur_seg, cur_net, latent_in):
+    def create_down_seg(self, cur_seg, cur_net, latent_in: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+        """
+        Generates a downsampled segmentation mask and synthesized image based on the given latent input.
+
+        Args:
+            cur_seg (nn.Module): The segmentation model used to generate the mask.
+            cur_net (nn.Module): The generator network used to synthesize the image.
+            latent_in (torch.Tensor): The latent input tensor.
+
+        Returns:
+            Tuple[torch.Tensor, torch.Tensor]: A tuple containing the downsampled segmentation mask and the synthesized image.
+        """
+        
         gen_im, _ = cur_net.generator([latent_in], input_is_latent=True, return_latents=False,
                                        start_layer=0, end_layer=8)
         gen_im_0_1 = (gen_im + 1) / 2
@@ -323,12 +411,12 @@ class Alignment(nn.Module):
         down_seg, _, _ = cur_seg(im)
         return down_seg, gen_im
         
-    def dilate_erosion(self, free_mask, device, dilate_erosion=5):
+    def dilate_erosion(self, free_mask: torch.Tensor, device, dilate_erosion: int=5) -> tuple[torch.Tensor, torch.Tensor]:
         free_mask = F.interpolate(free_mask.cpu(), size=(256, 256), mode='nearest').squeeze()
         free_mask_D, free_mask_E = cuda_unsqueeze(dilate_erosion_mask_tensor(free_mask, dilate_erosion=dilate_erosion), device)
         return free_mask_D, free_mask_E
 
-    def get_hair_box(self, mask):
+    def get_hair_box(self, mask: torch.Tensor) -> tuple[int, int, int, int]:
         right, left, bottom, top = 0, 0, 0, 0
         # Gets positions where the data is not 0
         contains_pos = torch.argwhere(mask == CLASSES["hair"])
@@ -349,8 +437,8 @@ class Alignment(nn.Module):
 
         return right, left, bottom, top
     
-    def align_images(self, img_path1, img_path2, sign='realistic', align_more_region=False, smooth=5,
-                     save_intermediate=True):
+    def align_images(self, img_path1: str, img_path2: str, sign='realistic', align_more_region: bool=False, smooth: int=5,
+                     save_intermediate: bool=True) -> None:
 
         ################## img_path1: Identity Image
         ################## img_path2: Structure Image
@@ -527,7 +615,7 @@ class Alignment(nn.Module):
         self.save_align_results(im_name_1, im_name_2, sign, gen_im, latent_1, latent_F_mixed,
                                 save_intermediate=save_intermediate)
 
-    def save_align_results(self, im_name_1, im_name_2, sign, gen_im, latent_in, latent_F, save_intermediate=True):
+    def save_align_results(self, im_name_1: str, im_name_2: str, sign: str, gen_im: torch.Tensor, latent_in: torch.Tensor, latent_F: torch.Tensor, save_intermediate: bool=True):
 
         save_im = toPIL(((gen_im[0] + 1) / 2).detach().cpu().clamp(0, 1))
 

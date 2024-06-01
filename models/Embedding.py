@@ -16,7 +16,18 @@ toPIL = torchvision.transforms.ToPILImage()
 
 
 class Embedding(nn.Module):
-    def __init__(self, opts, net=None):
+    def __init__(self, opts, net):
+        """
+        Initializes the Embedding class.
+
+        Args:
+            opts (object): An object containing the options for the embedding.
+            net (object): An object representing the neural network.
+
+        Returns:
+            None
+        """
+        
         super(Embedding, self).__init__()
         
         self.opts = opts
@@ -25,15 +36,22 @@ class Embedding(nn.Module):
         self.load_downsampling()
         self.setup_embedding_loss_builder()
 
-    def set_opts(self, opts):
+    def set_opts(self, opts) -> None:
         self.opts = opts
 
-    def load_downsampling(self):
+    def load_downsampling(self) -> None:
         factor = self.opts.size // 256
         self.downsample = BicubicDownSample(factor=factor)
         
     def setup_W_optimizer(self):
+        """
+        Initializes the optimizer for the W parameter in the embedding model.
 
+        Returns:
+            optimizer_W (torch.optim.Optimizer): The optimizer for the W parameter.
+            latent (List[torch.Tensor]): The list of latent tensors.
+        """
+        
         opt_dict = {
             'sgd': torch.optim.SGD,
             'adam': torch.optim.Adam,
@@ -56,7 +74,19 @@ class Embedding(nn.Module):
 
         return optimizer_W, latent
 
-    def setup_FS_optimizer(self, latent_W, F_init):
+    def setup_FS_optimizer(self, latent_W: torch.Tensor, F_init: torch.Tensor):
+        """
+        Sets up the optimizer for the FS model.
+
+        Args:
+            latent_W (torch.Tensor): The latent tensor for the W parameter.
+            F_init (torch.Tensor): The initial tensor for the F parameter.
+
+        Returns:
+            optimizer_FS (torch.optim.Optimizer): The optimizer for the FS model.
+            latent_F (torch.Tensor): The latent tensor for the F parameter.
+            latent_S (List[torch.Tensor]): The list of latent tensors for the S parameter.
+        """
 
         latent_F = F_init.clone().detach().requires_grad_(True)
         latent_S = []
@@ -81,16 +111,39 @@ class Embedding(nn.Module):
 
         return optimizer_FS, latent_F, latent_S
 
-    def setup_dataloader(self, image_path=None):
+    def setup_dataloader(self, image_path: str=None) -> None:
+        """
+        Sets up the dataloader for the current model.
+
+        Parameters:
+            image_path (str, optional): The path to the image dataset. Defaults to None.
+
+        Returns:
+            None
+        """
 
         self.dataset = ImagesDataset(opts=self.opts, image_path=image_path)
         self.dataloader = DataLoader(self.dataset, batch_size=1, shuffle=False)
         print("Number of images: {}".format(len(self.dataset)))
 
-    def setup_embedding_loss_builder(self):
+    def setup_embedding_loss_builder(self) -> None:
         self.loss_builder = EmbeddingLossBuilder(self.opts, device=self.net.device)
 
-    def invert_images_in_W(self, image_path=None):
+    def invert_images_in_W(self, image_path: list[str]) -> None:
+        """
+        Inverts images in the W parameter of the embedding model.
+
+        Args:
+            image_path (list[str]): A list of paths to the images to be inverted.
+
+        Returns:
+            None
+            
+        Description:
+            This function inverts images in the W parameter of the embedding model.
+            Saves the inverted images to the 'W+' folder in the output directory.
+        """
+        
         image_path = image_path.copy()
         # Causes images that already have saved data to be ignored
         cur_idx = 0
@@ -140,7 +193,21 @@ class Embedding(nn.Module):
 
             self.save_W_results(ref_name, gen_im, latent_in)
 
-    def invert_images_in_FS(self, image_path=None):
+    def invert_images_in_FS(self, image_path: list[str]) -> None:
+        """
+        Inverts images in the W parameter of the embedding model.
+
+        Args:
+            image_path (list[str]): A list of paths to the images to be inverted.
+
+        Returns:
+            None
+            
+        Description:
+            This function inverts images in the W parameter of the embedding model.
+            Saves the inverted images to the 'FS' folder in the output directory.
+        """
+        
         image_path = image_path.copy()
         # Causes images that already have saved data to be ignored
         cur_idx = 0
@@ -195,7 +262,20 @@ class Embedding(nn.Module):
 
             self.save_FS_results(ref_name, gen_im, latent_in, latent_F)
 
-    def cal_loss(self, im_dict, latent_in, latent_F=None, F_init=None):
+    def cal_loss(self, im_dict: dict, latent_in: torch.Tensor, latent_F: torch.Tensor, F_init: torch.Tensor):
+        """
+        Calculates the loss for the given image dictionary and latent inputs.
+
+        Args:
+            im_dict (dict): A dictionary containing the reference image, generated image, and other image information.
+            latent_in (torch.Tensor): The input latent tensor.
+            latent_F (torch.Tensor): The latent tensor for F.
+            F_init (torch.Tensor): The initial latent tensor for F.
+
+        Returns:
+            tuple: A tuple containing the total loss and a dictionary of individual loss components.
+        """
+        
         loss, loss_dic = self.loss_builder(**im_dict)
         p_norm_loss = self.net.cal_p_norm_loss(latent_in)
         loss_dic['p-norm'] = p_norm_loss
@@ -208,7 +288,20 @@ class Embedding(nn.Module):
 
         return loss, loss_dic
 
-    def save_W_results(self, ref_name, gen_im, latent_in):
+    def save_W_results(self, ref_name, gen_im: torch.Tensor, latent_in: torch.Tensor)  -> None:
+        """
+        Save the generated image and latent tensor to the output directory.
+        Args:
+            ref_name (str): The reference name for the saved image and latent tensor.
+            gen_im (torch.Tensor): The generated image tensor.
+            latent_in (torch.Tensor): The input latent tensor.
+        Returns:
+            None
+        
+        Description:
+            Saves the generated image and latent tensor to the output directory.
+        """
+        
         save_im = toPIL(((gen_im[0] + 1) / 2).detach().cpu().clamp(0, 1))
         save_latent = latent_in.detach().cpu().numpy()
 
@@ -221,7 +314,25 @@ class Embedding(nn.Module):
         save_im.save(image_path)
         np.save(latent_path, save_latent)
 
-    def save_W_intermediate_results(self, ref_name, gen_im, latent_in, step):
+    def save_W_intermediate_results(self, ref_name, gen_im: torch.Tensor, latent_in: torch.Tensor, step: int) -> None:
+        """
+        Save the intermediate results of the W parameter of the embedding model.
+
+        Args:
+            ref_name (str): The reference name for the saved image and latent tensor.
+            gen_im (torch.Tensor): The generated image tensor.
+            latent_in (torch.Tensor): The input latent tensor.
+            step (int): The step number of the intermediate results.
+
+        Returns:
+            None
+
+        Description:
+            This function saves the intermediate results of the W parameter of the embedding model.
+            It saves the generated image and latent tensor to the 'W+' folder in the output directory.
+            The intermediate results are saved with the format '{ref_name}_{step:04}.npy' and '{ref_name}_{step:04}.png'.
+        """
+        
         save_im = toPIL(((gen_im[0] + 1) / 2).detach().cpu().clamp(0, 1))
         save_latent = latent_in.detach().cpu().numpy()
 
@@ -234,7 +345,21 @@ class Embedding(nn.Module):
         save_im.save(image_path)
         np.save(latent_path, save_latent)
 
-    def save_FS_results(self, ref_name, gen_im, latent_in, latent_F):
+    def save_FS_results(self, ref_name, gen_im: torch.Tensor, latent_in: torch.Tensor, latent_F: torch.Tensor) -> None:
+        """
+        Save the generated image and latent tensors to the output directory for the FS results.
+        Args:
+            ref_name (str): The reference name for the saved image and latent tensors.
+            gen_im (torch.Tensor): The generated image tensor.
+            latent_in (torch.Tensor): The input latent tensor.
+            latent_F (torch.Tensor): The latent F tensor.
+        Returns:
+            None
+        
+        Description:
+            Saves the generated image and latent tensors to the output directory for the FS results. 
+        """
+        
         save_im = toPIL(((gen_im[0] + 1) / 2).detach().cpu().clamp(0, 1))
 
         output_dir = os.path.join(self.opts.output_dir, 'FS')

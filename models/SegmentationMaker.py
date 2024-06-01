@@ -6,22 +6,49 @@ import torch.nn.functional as F
 import torch.nn as nn
 from models.FacerParsing import facer_to_bisnet
 from utils.seg_utils import expand_face_mask, vis_seg
+from models.ModelBase import Model
 
 BATCH_SIZE = 4
 
 
 class SegMaker(nn.Module):
-    def __init__(self, opts, facer=None, background_remover=None, keypoint_model=None):
+    def __init__(self, opts, facer: Model, background_remover: Model, keypoint_model: Model):
+        """
+        Initializes a new instance of the `SegMaker` class.
+
+        Args:
+            opts (object): An object containing the options for the segmentation maker.
+            facer (Model): An instance of the `Model` class representing the facer.
+            background_remover (Model): An instance of the `Model` class representing the background remover.
+            keypoint_model (Model): An instance of the `Model` class representing the keypoint model.
+
+        Returns:
+            None
+        """
+        
         super(SegMaker, self).__init__()
         self.opts = opts
         self.facer = facer
         self.background_remover = background_remover
         self.keypoint_model = keypoint_model
 
-    def set_opts(self, opts):
+    def set_opts(self, opts) -> None:
         self.opts = opts
 
-    def create_segmentations(self, imgs):
+    def create_segmentations(self, imgs: list[str]) -> None:
+        """
+        Create segmentations for a list of images.
+        Args:
+            imgs (list[str]): A list of image paths.
+        Returns:
+            None
+            
+        Description: 
+            * Removes images that already have segmentation masks saved.
+            * Performs segmentation on each image by converting to PyTorch tensors, resizing, and inferring segmentation masks, keypoints, and face parsing results.
+            * Saves segmentation masks, left points, right points, and brows points as a numpy archive file, and saves the visualization of the segmentation mask as an image file.
+        """
+        
         imgs = imgs.copy()
         
         i = 0

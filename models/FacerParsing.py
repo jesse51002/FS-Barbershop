@@ -47,10 +47,11 @@ class FacerDetection(Model):
         self.device = device
         self.face_detector_model = facer.face_detector('retinaface/mobilenet', device=self.device)
     
-    def inference(self, imgs, keep_one_img=True):
+    def inference(self, imgs: torch.Tensor, keep_one_img: bool=True) -> dict:
         """
         Input:
         imgs (torch tensor) (RGB): b x c x h x w
+        keep_one_img (bool): If True, keeps only the highest confidence face. If False, keeps all faces.
 
         Output:
         Tuple (
@@ -97,7 +98,7 @@ class FacerModel(Model):
         self.segmentation_model = facer.face_parser('farl/lapa/448', device=self.device)
         self.face_detector = face_detector
     
-    def inference(self, imgs):
+    def inference(self, imgs: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
         """
         Input:
         imgs (torch tensor) (RGB): b x c x h x w
@@ -135,7 +136,7 @@ class FacerKeypoints(Model):
         self.keypoint_model = facer.face_aligner('farl/ibug300w/448', device=device)
         self.face_detector = face_detector
     
-    def inference(self, imgs):
+    def inference(self, imgs: torch.Tensor) -> torch.Tensor:
         """
         Input:
         imgs (torch tensor) (RGB): b x c x h x w
@@ -156,7 +157,23 @@ class FacerKeypoints(Model):
 
         return keypoints
 
-    def poly_interpolate(self, keypoints, jaw_degree=4, brow_degree=3):
+    def poly_interpolate(self, keypoints: torch.Tensor, jaw_degree: int=4, brow_degree: int=3) -> list[dict[str, np.ndarray]]:
+        """
+        Interpolates the given keypoints to create jaw and brow points for each face in the keypoints tensor.
+        
+        Args:
+            keypoints (torch.Tensor): A tensor of shape (N, 27, 2) containing the keypoints for each face in the input tensor.
+            jaw_degree (int, optional): The degree of the polynomial used for jaw interpolation. Defaults to 4.
+            brow_degree (int, optional): The degree of the polynomial used for brow interpolation. Defaults to 3.
+        
+        Returns:
+            list: A list of dictionaries, where each dictionary contains the interpolated jaw and brow points for a face.
+                The dictionary has the following keys:
+                    - "right" (np.ndarray): An array of shape (M, 2) containing the interpolated right jaw points.
+                    - "left" (np.ndarray): An array of shape (M, 2) containing the interpolated left jaw points.
+                    - "brows" (np.ndarray): An array of shape (N, 2) containing the interpolated brow points.
+        """
+        
         left_start = 0
         middle = 8
         right_end = 16
@@ -211,7 +228,7 @@ class FacerKeypoints(Model):
         
         outputs = []
 
-        def InferPoly(y_list, coef):
+        def InferPoly(y_list, coef) -> np.ndarray:
             p = np.poly1d(coef)
             return p(y_list)
         
@@ -230,7 +247,7 @@ class FacerKeypoints(Model):
         return outputs
         
         
-def facer_to_bisnet(facer_seg):
+def facer_to_bisnet(facer_seg) -> torch.Tensor:
     """
     Input (Facer segmentation):
     seg_results (torch.Tensor): nfaces x h x w

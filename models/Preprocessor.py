@@ -1,5 +1,7 @@
 import os
 import sys
+
+import PIL.Image
 sys.path.insert(0, './')
 from PIL import Image
 from pathlib import Path
@@ -15,22 +17,51 @@ import math
 import time
 
 from args_maker import create_parser
+from models.ModelBase import Model
 
 WEIGHT_FILE_NAME = "shape_predictor_68_face_landmarks.dat"
 BATCH_SIZE = 3
 
 
 class Preprocessor(nn.Module):
-    def __init__(self, opts, background_remover=None, keypoint_model=None):
+    def __init__(self, opts, background_remover: Model, keypoint_model: Model):
+        """
+        Initializes a new instance of the Preprocessor class.
+        Parameters:
+            opts (object): The options object containing configuration settings.
+            background_remover (object): The background remover object
+            keypoint_model (object): The keypoint model object
+        """
+        
         super(Preprocessor, self).__init__()
         self.opts = opts
         self.background_remover = background_remover
         self.keypoint_model = keypoint_model
     
-    def set_opts(self, opts):
+    def set_opts(self, opts) -> None:
         self.opts = opts
 
-    def preprocess_imgs(self, imgs, target_color=155):
+    def preprocess_imgs(self, imgs: list[str], target_color: int=155) -> None:
+        """
+        Preprocesses a list of images.
+        
+        Args:
+            imgs (List[str]): A list of paths to the input images.
+            target_color (int, optional): The target color for the background removal. Defaults to 155.
+        
+        Returns:
+            None
+        
+        Raises:
+            AssertionError: If the file type of an image is not "jpeg", "jpg", or "png".
+        
+        Description:        
+            * Preprocesses a list of images
+            * For each image, it removes the background using the background remover and saves the result in the unprocessed directory
+            * For each image, it aligns the face using the keypoints and saves the result in the input directory
+            * Saves the images in the input directory
+        """
+        
         torch.cuda.set_device(self.opts.device[0])
         
         if not os.path.isdir(self.opts.unprocessed):
@@ -131,11 +162,27 @@ class Preprocessor(nn.Module):
                 
                 face.save(Path(self.opts.input_dir) / (im_stem + ".png"))
     
-    def align_face(self, img, keypoints):
+    def align_face(self, img: PIL.Image, keypoints: np.ndarray):
         """
-        :param filepath: str
-        :return: list of PIL Images
-        """
+        Aligns the face in the given image based on the provided keypoints.
+
+        Parameters:
+            img (PIL.Image): The input image containing the face.
+            keypoints (numpy.ndarray): The keypoints representing the facial landmarks.
+
+        Returns:
+            list: A list containing the aligned face image.
+
+        Note:
+            - The function performs the following steps:
+                1. Calculates auxiliary vectors for the facial landmarks.
+                2. Chooses an oriented crop rectangle based on the facial landmarks.
+                3. Shrinks the image if necessary.
+                4. Crops the image to the chosen rectangle.
+                5. Pads the image if necessary.
+                6. Transforms the image to the desired size.
+
+        """        
         
         lm = keypoints
         
