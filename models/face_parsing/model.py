@@ -11,6 +11,7 @@ from .resnet import Resnet18
 # from modules.bn import InPlaceABNSync as BatchNorm2d
 
 import numpy as np
+from models.ModelBase import Model
 
 seg_mean = torch.from_numpy(np.array([[0.485, 0.456, 0.406]])).float().cuda().reshape(1,3,1,1)
 seg_std = torch.from_numpy(np.array([[0.229, 0.224, 0.225]])).float().cuda().reshape(1,3,1,1)
@@ -233,9 +234,10 @@ class FeatureFusionModule(nn.Module):
         return wd_params, nowd_params
 
 
-class BiSeNet(nn.Module):
+class BiSeNet(Model, nn.Module):
     def __init__(self, n_classes, *args, **kwargs):
         super(BiSeNet, self).__init__()
+        self.name = "BiSeNet"
         self.cp = ContextPath()
         ## here self.sp is deleted
         self.ffm = FeatureFusionModule(256, 256)
@@ -243,6 +245,9 @@ class BiSeNet(nn.Module):
         self.conv_out16 = BiSeNetOutput(128, 64, n_classes)
         self.conv_out32 = BiSeNetOutput(128, 64, n_classes)
         self.init_weight()
+
+    def inference(self, x):
+        return self.forward(x)
 
     def forward(self, x):
         H, W = x.size()[2:]

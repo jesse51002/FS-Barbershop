@@ -24,7 +24,7 @@ BATCH_SIZE = 3
 
 
 class Preprocessor(nn.Module):
-    def __init__(self, opts, background_remover: Model, keypoint_model: Model):
+    def __init__(self, opts: dict, background_remover: Model, keypoint_model: Model):
         """
         Initializes a new instance of the Preprocessor class.
         Parameters:
@@ -38,7 +38,7 @@ class Preprocessor(nn.Module):
         self.background_remover = background_remover
         self.keypoint_model = keypoint_model
     
-    def set_opts(self, opts) -> None:
+    def set_opts(self, opts: dict) -> None:
         self.opts = opts
 
     def preprocess_imgs(self, imgs: list[str], target_color: int=155) -> None:

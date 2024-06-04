@@ -19,7 +19,7 @@ class PixelNorm(nn.Module):
         return input * torch.rsqrt(torch.mean(input ** 2, dim=1, keepdim=True) + 1e-8)
 
 class Net(nn.Module):
-    def __init__(self, opts):
+    def __init__(self, opts: dict):
         super(Net, self).__init__()
         self.opts = opts
         self.cal_layer_num()

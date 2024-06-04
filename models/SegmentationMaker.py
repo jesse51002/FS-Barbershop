@@ -12,7 +12,7 @@ BATCH_SIZE = 4
 
 
 class SegMaker(nn.Module):
-    def __init__(self, opts, facer: Model, background_remover: Model, keypoint_model: Model):
+    def __init__(self, opts: dict, facer: Model, background_remover: Model, keypoint_model: Model):
         """
         Initializes a new instance of the `SegMaker` class.
 
@@ -32,7 +32,7 @@ class SegMaker(nn.Module):
         self.background_remover = background_remover
         self.keypoint_model = keypoint_model
 
-    def set_opts(self, opts) -> None:
+    def set_opts(self, opts: dict) -> None:
         self.opts = opts
 
     def create_segmentations(self, imgs: list[str]) -> None:

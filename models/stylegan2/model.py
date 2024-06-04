@@ -489,7 +489,6 @@ class Generator(nn.Module):
             start_layer=0,
             end_layer=8,
             return_rgb=False,
-
     ):
         if not input_is_latent:
             styles = [self.style(s) for s in styles]

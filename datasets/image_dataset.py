@@ -7,7 +7,7 @@ import os
 
 class ImagesDataset(Dataset):
 
-    def __init__(self, opts, image_path=None):
+    def __init__(self, opts: dict, image_path=None):
         if not image_path:
             image_root = opts.input_dir
             self.image_paths = sorted(data_utils.make_dataset(image_root))

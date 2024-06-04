@@ -18,6 +18,7 @@ from utils.seg_utils import save_vis_mask
 from utils.data_utils import cuda_unsqueeze
 from utils.image_utils import dilate_erosion_mask_tensor
 from threading import Thread, Lock
+from models.ModelBase import Model
 import time
 
 toPIL = torchvision.transforms.ToPILImage()
@@ -26,7 +27,7 @@ COLOR_MATCH_QUARTILE = 0.75
 
 class Alignment(nn.Module):
 
-    def __init__(self, opts, net0=None, net1=None, seg0=None, seg1=None):
+    def __init__(self, opts: dict, net0: Model=None, net1: Model=None, seg0: Model=None, seg1: Model=None):
         """
         Initializes an instance of the Alignment class.
         Args:
@@ -62,7 +63,7 @@ class Alignment(nn.Module):
         self.load_downsampling()
         self.setup_align_loss_builder()
 
-    def set_opts(self, opts) -> None:
+    def set_opts(self, opts: dict) -> None:
         self.opts = opts
 
     def load_downsampling(self) -> None:
@@ -361,7 +362,7 @@ class Alignment(nn.Module):
             
         return img2_left_x_list, img2_right_x_list
 
-    def setup_align_optimizer(self, cur_net, latent_path: str=None, device="cuda"):
+    def setup_align_optimizer(self, cur_net: Model, latent_path: str=None, device="cuda"):
         """
         Set up the optimizer for the alignment process.
 
@@ -389,7 +390,7 @@ class Alignment(nn.Module):
 
         return optimizer_align, latent_W
 
-    def create_down_seg(self, cur_seg, cur_net, latent_in: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+    def create_down_seg(self, cur_seg: Model, cur_net: Model, latent_in: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
         """
         Generates a downsampled segmentation mask and synthesized image based on the given latent input.
 
@@ -402,7 +403,7 @@ class Alignment(nn.Module):
             Tuple[torch.Tensor, torch.Tensor]: A tuple containing the downsampled segmentation mask and the synthesized image.
         """
         
-        gen_im, _ = cur_net.generator([latent_in], input_is_latent=True, return_latents=False,
+        gen_im, _ = cur_net.inference([latent_in], input_is_latent=True, return_latents=False,
                                        start_layer=0, end_layer=8)
         gen_im_0_1 = (gen_im + 1) / 2
 
@@ -461,7 +462,9 @@ class Alignment(nn.Module):
         latent_W_path_1 = os.path.join(output_dir, 'W+', f'{im_name_1}.npy')
         latent_W_path_2 = os.path.join(output_dir, 'W+', f'{im_name_2}.npy')
 
-        def gpu_0_inference(results, lock, cur_seg, cur_net, cur_loss_builder, cur_device):
+        def gpu_0_inference(
+            results: dict, lock: Lock, cur_seg: Model,
+            cur_net: Model, cur_loss_builder, cur_device):
             torch.cuda.set_device(cur_net.device)
             
             optimizer_align, latent_align_1 = self.setup_align_optimizer(cur_net, latent_W_path_1, device=cur_device)
@@ -485,7 +488,7 @@ class Alignment(nn.Module):
                 loss.backward()
                 optimizer_align.step()
     
-            intermediate_align, _ = cur_net.generator([latent_in], input_is_latent=True, return_latents=False,
+            intermediate_align, _ = cur_net.inference([latent_in], input_is_latent=True, return_latents=False,
                                                        start_layer=0, end_layer=3)
             intermediate_align = intermediate_align.clone().detach()
 
@@ -493,7 +496,9 @@ class Alignment(nn.Module):
                 results["intermediate_align"] = intermediate_align
             
         ##############################################
-        def gpu_1_inference(results, lock, cur_seg, cur_net, cur_loss_builder, cur_device):
+        def gpu_1_inference(
+            results: dict, lock: Lock, cur_seg: Model,
+            cur_net: Model, cur_loss_builder, cur_device):
             torch.cuda.set_device(cur_net.device)
             
             cur_latent_2 = latent_2.to(cur_device)
@@ -541,7 +546,7 @@ class Alignment(nn.Module):
                 loss.backward()
                 optimizer_align.step()
 
-            latent_F_out_new, _ = cur_net.generator([latent_in], input_is_latent=True, return_latents=False,
+            latent_F_out_new, _ = cur_net.inference([latent_in], input_is_latent=True, return_latents=False,
                                                      start_layer=0, end_layer=3)
             latent_F_out_new = latent_F_out_new.clone().detach()
 

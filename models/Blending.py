@@ -22,7 +22,7 @@ toPIL = torchvision.transforms.ToPILImage()
 
 
 class Blending(nn.Module):
-    def __init__(self, opts, net, facer: Model, background_remover: Model, seg):
+    def __init__(self, opts: dict, net: Model, facer: Model, background_remover: Model, seg: Model):
         super(Blending, self).__init__()
         
         self.opts = opts
@@ -34,7 +34,7 @@ class Blending(nn.Module):
         self.load_downsampling()
         self.setup_blend_loss_builder()
 
-    def set_opts(self, opts) -> None:
+    def set_opts(self, opts: dict) -> None:
         self.opts = opts
     
     def load_downsampling(self) -> None:
@@ -103,7 +103,7 @@ class Blending(nn.Module):
         )
 
         with torch.no_grad():
-            I_X, _ = self.net.generator(
+            I_X, _ = self.net.inference(
                 [latent_1], input_is_latent=True, return_latents=False, start_layer=4,
                 end_layer=8, layer_in=latent_F_mixed
             )
@@ -127,7 +127,7 @@ class Blending(nn.Module):
 
             latent_mixed = latent_1 + interpolation_latent.unsqueeze(0) * (latent_3 - latent_1)
 
-            I_G, _ = self.net.generator([latent_mixed], input_is_latent=True, return_latents=False, start_layer=4,
+            I_G, _ = self.net.inference([latent_mixed], input_is_latent=True, return_latents=False, start_layer=4,
                                end_layer=8, layer_in=latent_F_mixed)
             I_G_0_1 = (I_G + 1) / 2
 
@@ -152,7 +152,7 @@ class Blending(nn.Module):
         ############## Load F code from  '{}_{}.npz'.format(im_name_1, im_name_2)
         _, latent_F_mixed = load_FS_latent(os.path.join(output_dir, 'Align_{}'.format(sign),
                                                         '{}_{}.npz'.format(im_name_1, im_name_2)), device)
-        I_G, _ = self.net.generator([latent_mixed], input_is_latent=True, return_latents=False, start_layer=4,
+        I_G, _ = self.net.inference([latent_mixed], input_is_latent=True, return_latents=False, start_layer=4,
                            end_layer=8, layer_in=latent_F_mixed)
 
         self.save_blend_results(im_name_1, im_name_2, im_name_3, sign, I_G, latent_mixed, latent_F_mixed)

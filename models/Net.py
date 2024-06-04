@@ -8,12 +8,12 @@ from models.stylegan2.model import Generator
 import numpy as np
 import os
 from utils.model_utils import download_weight
-from torch.nn.parallel import DistributedDataParallel
+from models.ModelBase import Model
 
-
-class Net(nn.Module):
-    def __init__(self, opts, device="cuda"):
+class Net(Model, nn.Module):
+    def __init__(self, opts: dict, device="cuda"):
         super(Net, self).__init__()
+        self.name = "Stylegan2"
         self.opts = opts
         self.device = device
         self.generator = Generator(opts.size, opts.latent, opts.n_mlp, channel_multiplier=opts.channel_multiplier)
@@ -21,6 +21,16 @@ class Net(nn.Module):
         self.load_weights()
         self.load_PCA_model()
 
+    def inference(self, latent_in, input_is_latent=True,
+                  return_latents=False,start_layer=0, end_layer=8,
+                  layer_in=None):
+        self.generator(
+            [latent_in], input_is_latent=input_is_latent,
+            return_latents=return_latents,
+            start_layer=start_layer, end_layer=end_layer,
+            layer_in=layer_in
+            )
+        
     def load_weights(self):
         if not os.path.exists(self.opts.ckpt):
             print('Downloading StyleGAN2 checkpoint: {}'.format(self.opts.ckpt))
@@ -115,12 +125,12 @@ if __name__ == "__main__":
     net = Net(opt())
 
     latent = [net.latent_avg.unsqueeze(0).clone().cuda()]
-    gen_im, _ = net.generator(latent, input_is_latent=True, return_latents=False, start_layer=0, end_layer=8)
+    gen_im, _ = net.inference(latent, input_is_latent=True, return_latents=False, start_layer=0, end_layer=8)
 
     # Average generation time 0.017113363742828368
     start = time.time()
     for i in range(20):
-        gen_im, _ = net.generator(latent, input_is_latent=True, return_latents=False, start_layer=0, end_layer=8)
+        gen_im, _ = net.inference(latent, input_is_latent=True, return_latents=False, start_layer=0, end_layer=8)
     
     print("Finsihed image gen in", (time.time() - start) / 20)
 

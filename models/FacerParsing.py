@@ -44,6 +44,7 @@ FACER_TO_BISNET = {
 
 class FacerDetection(Model):
     def __init__(self, device="cuda"):
+        self.name = "FacerDetection"
         self.device = device
         self.face_detector_model = facer.face_detector('retinaface/mobilenet', device=self.device)
     
@@ -94,6 +95,7 @@ class FacerDetection(Model):
 class FacerModel(Model):
     
     def __init__(self, face_detector: FacerDetection, device="cuda"):
+        self.name = "FacerFaceParsing"
         self.device = device
         self.segmentation_model = facer.face_parser('farl/lapa/448', device=self.device)
         self.face_detector = face_detector
@@ -132,6 +134,7 @@ class FacerModel(Model):
 
 class FacerKeypoints(Model):
     def __init__(self, face_detector: FacerDetection, device="cuda"):
+        self.name = "FacerFaceKeypoints"
         self.device = device
         self.keypoint_model = facer.face_aligner('farl/ibug300w/448', device=device)
         self.face_detector = face_detector

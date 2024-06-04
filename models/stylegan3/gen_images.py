@@ -133,6 +133,8 @@ def generate_images(
             m = np.linalg.inv(m)
             G.synthesis.input.transform.copy_(torch.from_numpy(m))
 
+        print(z.shape)
+        
         start = time.time()
         for i in range(21):
             if i == 1:

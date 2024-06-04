@@ -21,6 +21,8 @@ INFER_SIZE = 1024
 
 class human_matt_model(Model):
     def __init__(self, checkpoint=DEFAULT_CHECKPOINT, device="cuda"):
+        self.name = "HumanMatting"
+        
         self.device = device
         
         # build model

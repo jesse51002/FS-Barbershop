@@ -11,12 +11,13 @@ from tqdm import tqdm
 import PIL
 import torchvision
 from utils.data_utils import convert_npy_code
+from models.ModelBase import Model
 
 toPIL = torchvision.transforms.ToPILImage()
 
 
 class Embedding(nn.Module):
-    def __init__(self, opts, net):
+    def __init__(self, opts: dict, net: Model):
         """
         Initializes the Embedding class.
 
@@ -36,7 +37,7 @@ class Embedding(nn.Module):
         self.load_downsampling()
         self.setup_embedding_loss_builder()
 
-    def set_opts(self, opts) -> None:
+    def set_opts(self, opts: dict) -> None:
         self.opts = opts
 
     def load_downsampling(self) -> None:
@@ -172,7 +173,7 @@ class Embedding(nn.Module):
                 optimizer_W.zero_grad()
                 latent_in = torch.stack(latent).unsqueeze(0)
 
-                gen_im, _ = self.net.generator([latent_in], input_is_latent=True, return_latents=False)
+                gen_im, _ = self.net.inference([latent_in], input_is_latent=True, return_latents=False)
                 im_dict = {
                     'ref_im_H': ref_im_H.to(device),
                     'ref_im_L': ref_im_L.to(device),
@@ -234,7 +235,7 @@ class Embedding(nn.Module):
 
             latent_W_path = os.path.join(output_dir, 'W+', f'{ref_name[0]}.npy')
             latent_W = torch.from_numpy(convert_npy_code(np.load(latent_W_path))).to(device)
-            F_init, _ = self.net.generator([latent_W], input_is_latent=True, return_latents=False, start_layer=0, end_layer=3)
+            F_init, _ = self.net.inference([latent_W], input_is_latent=True, return_latents=False, start_layer=0, end_layer=3)
             optimizer_FS, latent_F, latent_S = self.setup_FS_optimizer(latent_W, F_init)
 
             pbar = tqdm(range(self.opts.FS_steps), desc='Embedding', leave=False, disable=self.opts.disable_progress_bar)
@@ -242,7 +243,7 @@ class Embedding(nn.Module):
 
                 optimizer_FS.zero_grad()
                 latent_in = torch.stack(latent_S).unsqueeze(0)
-                gen_im, _ = self.net.generator([latent_in], input_is_latent=True, return_latents=False,
+                gen_im, _ = self.net.inference([latent_in], input_is_latent=True, return_latents=False,
                                                start_layer=4, end_layer=8, layer_in=latent_F)
                 im_dict = {
                     'ref_im_H': ref_im_H.to(device),
