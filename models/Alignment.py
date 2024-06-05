@@ -589,7 +589,7 @@ class Alignment(nn.Module):
 
         free_mask_down_32 = F.interpolate(free_mask.float(), size=(32, 32), mode='bicubic')[0]
         interpolation_low = 1 - free_mask_down_32
-
+        
         latent_F_mixed = intermediate_align + interpolation_low.unsqueeze(0) * (
                 latent_F_1 - intermediate_align)
 

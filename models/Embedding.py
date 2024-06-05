@@ -263,7 +263,10 @@ class Embedding(nn.Module):
 
             self.save_FS_results(ref_name, gen_im, latent_in, latent_F)
 
-    def cal_loss(self, im_dict: dict, latent_in: torch.Tensor, latent_F: torch.Tensor, F_init: torch.Tensor):
+    def cal_loss(
+        self, im_dict: dict, latent_in: torch.Tensor,
+        latent_F: torch.Tensor = None, F_init: torch.Tensor = None
+    ):
         """
         Calculates the loss for the given image dictionary and latent inputs.
 
