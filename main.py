@@ -14,6 +14,7 @@ from models.FacerParsing import FacerModel, FacerKeypoints, FacerDetection
 from models.p3m_matting.inference import human_matt_model
 from models.Net import Net
 from models.NetXL import NetXL
+from models.QualityClip import QualityClip
 
 
 def main(args):
@@ -62,6 +63,8 @@ def main(args):
         net1 = NetXL(args, device=args.device[1]) if args.is_multi_gpu else None
     else:
         raise NotImplementedError(f"{args.model} is not implemented in this code base")
+
+    quality_clip = QualityClip(device=args.device[0]) if args.clip_quality else None
         
     face_detector = FacerDetection(device=args.device[1] if args.is_multi_gpu else args.device[0])
     keypoint_model = FacerKeypoints(face_detector=face_detector, device=args.device[1] if args.is_multi_gpu else args.device[0])
@@ -70,7 +73,7 @@ def main(args):
 
     ii2s = Embedding(args, net=net0)
     segmentor = SegMaker(args, facer=facer, background_remover=background_remover, keypoint_model=keypoint_model)
-    align = Alignment(args, seg0=seg0, seg1=seg1, net0=net0, net1=net1)
+    align = Alignment(args, seg0=seg0, seg1=seg1, net0=net0, net1=net1, quality_clip=quality_clip)
     blend = Blending(args, seg=seg0, net=net0, facer=facer, background_remover=background_remover)
     print("Finished loading models")
 
