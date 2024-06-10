@@ -18,6 +18,7 @@ def create_parser():
     parser.add_argument('--sign', type=str, default='realistic', help='realistic or fidelity results')
     parser.add_argument('--smooth', type=int, default=5, help='dilation and erosion parameter')
     parser.add_argument('--disable_progress_bar', action='store_true')
+    parser.add_argument("--model", type=str, default="StyleGan2", help="Options [StyleGan2, StyleGanXL]")
 
     # StyleGAN2 setting
     parser.add_argument('--size', type=int, default=1024)

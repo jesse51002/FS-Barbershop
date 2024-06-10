@@ -10,109 +10,42 @@ import numpy as np
 import os
 import time
 import tqdm
+from models.ModelBase import Model
 
-class PixelNorm(nn.Module):
-    def __init__(self):
-        super().__init__()
-        
-    def forward(self, input):
-        return input * torch.rsqrt(torch.mean(input ** 2, dim=1, keepdim=True) + 1e-8)
 
-class Net(nn.Module):
-    def __init__(self, opts: dict):
-        super(Net, self).__init__()
+class NetXL(nn.Module, Model):
+    def __init__(self, opts: dict, device):
+        super(NetXL, self).__init__()
+
+        self.name = "StyleGanXL"
         self.opts = opts
-        self.cal_layer_num()
+        self.device = device
         self.load_weights()
-        # self.load_PCA_model()
 
+    def inference(self, latent):
+        return self.generator.synthesis(latent, noise_mode="const")
+    
     def load_weights(self):
         print('Loading networks from "%s"...' % self.opts.ckpt)
         
-        device = self.opts.device
         with dnnlib.util.open_url(self.opts.ckpt) as f:
             loaded_network = legacy.load_network_pkl(f)
 
         # print(loaded_network.keys())
         self.generator = loaded_network['G_ema']
-        self.generator = self.generator.eval().requires_grad_(False).to(device)
-    
-        self.latent_avg = torch.ones((1, 20, 512))
-
+        self.generator = self.generator.eval().requires_grad_(False).to(self.device)
         self.generator.eval()
 
-    def create_img_from_latent(self, latent):
-        return self.generator.synthesis(latent, noise_mode="const")
-
-    def build_PCA_model(self, PCA_path):
-        from utils.PCA_utils import IPCAEstimator
-        transformer = IPCAEstimator(512)
-
-        batch_size = 10
-
-        norm = PixelNorm()
-        # self.generator.cpu()
+        for param in self.generator.parameters():
+            param.requires_grad = False
         
-        for i in range(0, 1000000, batch_size):
-            print(f"{i} / 1000000")
-            with torch.no_grad():
-                latent = torch.randn((batch_size, 20, 512), dtype=torch.float32).to(self.opts.device)
-                pulse_space = torch.nn.LeakyReLU(5)(norm(latent)).detach().cpu().numpy()
-            X_mean = pulse_space.mean(0)
-            transformer.fit_partial(pulse_space - X_mean)
-
-        X_comp, X_stdev, X_var_ratio = transformer.get_components()
-        np.savez(PCA_path, X_mean=X_mean, X_comp=X_comp, X_stdev=X_stdev, X_var_ratio=X_var_ratio)
-
-        self.generator.to(self.opts.device)
-
-
-    def load_PCA_model(self):
-        device = self.opts.device
-
-        PCA_path = self.opts.ckpt[:-3] + '_PCA.npz'
-
-        if not os.path.isfile(PCA_path):
-            self.build_PCA_model(PCA_path)
-
-        PCA_model = np.load(PCA_path)
-        self.X_mean = torch.from_numpy(PCA_model['X_mean']).float().to(device)
-        self.X_comp = torch.from_numpy(PCA_model['X_comp']).float().to(device)
-        self.X_stdev = torch.from_numpy(PCA_model['X_stdev']).float().to(device)
-
-
-
-    # def make_noise(self):
-    #     noises_single = self.generator.make_noise()
-    #     noises = []
-    #     for noise in noises_single:
-    #         noises.append(noise.repeat(1, 1, 1, 1).normal_())
-    #
-    #     return noises
-
-    def cal_layer_num(self):
         if self.opts.size == 1024:
-            self.layer_num = 18
+            self.default_latent = torch.zeros((1, 22, 512), dtype=torch.float32)
         elif self.opts.size == 512:
-            self.layer_num = 16
-        elif self.opts.size == 256:
-            self.layer_num = 14
-
-        self.S_index = self.layer_num - 11
-
-        return
-
-
-    def cal_p_norm_loss(self, latent_in):
-        latent_p_norm = (torch.nn.LeakyReLU(negative_slope=5)(latent_in) - self.X_mean).bmm(
-            self.X_comp.T.unsqueeze(0)) / self.X_stdev
-        p_norm_loss = self.opts.p_norm_lambda * (latent_p_norm.pow(2).mean())
-        return p_norm_loss
-
-
-    def cal_l_F(self, latent_F, F_init):
-        return self.opts.l_F_lambda * (latent_F - F_init).pow(2).mean()
-
+            self.default_latent = torch.zeros((1, 20, 512), dtype=torch.float32)
+        else:
+            raise NotImplementedError(f"Image size ({self.opts.size}) has not been implemented in StyleGanXL")
+            
 
 if __name__ == "__main__":
     class opt:
@@ -121,13 +54,12 @@ if __name__ == "__main__":
             self.latent = 512
             self.channel_multiplier = 2
             self.n_mlp = 8
-            self.ckpt = 'pretrained_models/ffhq512xl.pkl'
-            self.device = 'cuda'
+            self.ckpt = 'pretrained_models/ffhq1024xl.pkl'
     
-    net = Net(opt())
+    net = NetXL(opt(), 'cuda')
         
-    latent = torch.randn((1, 20, 512), dtype=torch.float32).clone().cuda()
+    latent = net.default_latent
 
-    # Average generation time 0.05306898355484009
-    gen_im = net.create_img_from_latent(latent)
+    # Average generation time 0.08938145637512207
+    gen_im = net.inference(latent)
 

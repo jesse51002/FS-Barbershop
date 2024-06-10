@@ -134,12 +134,12 @@ def generate_images(
             G.synthesis.input.transform.copy_(torch.from_numpy(m))
 
         print(z.shape)
-        
+
+        img = G(z, label, truncation_psi=truncation_psi, noise_mode=noise_mode)
         start = time.time()
-        for i in range(21):
-            if i == 1:
-                print("Starting image gen")
-                start = time.time()
+        # time 0.09010491371154786
+        # shape torch.Size([1, 512])
+        for i in range(20):
             img = G(z, label, truncation_psi=truncation_psi, noise_mode=noise_mode)
         print("Finsihed image gen in", (time.time() - start) / 20)
         img = (img.permute(0, 2, 3, 1) * 127.5 + 128).clamp(0, 255).to(torch.uint8)
