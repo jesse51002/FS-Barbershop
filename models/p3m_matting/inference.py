@@ -32,6 +32,10 @@ class human_matt_model(Model):
         ckpt = torch.load(checkpoint)
         self.model.load_state_dict(ckpt['state_dict'], strict=True)
         self.model = self.model.to(self.device)
+        self.model.eval()
+        
+        for param in self.model.parameters():
+            param.requires_grad = False
         
         self.pil_to_tensor = transforms.Compose(
             [
