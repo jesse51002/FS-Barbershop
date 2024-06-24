@@ -85,21 +85,20 @@ INV_TRANSFORM = transforms.Compose([
         std = [ 1. ]),
 ])
 
+CLASSES = {
+    "afro": 0,
+    "braids_dreads": 1,
+    "curly": 2,
+    "men": 3,
+    "staright": 4,
+    "wavy": 5
+}
+
 
 class HairTypeDataset(Dataset):
     def __init__(self, img_dir, split=Split.ALL):
         
         self.transform = TRANSFORM
-            
-        self.class_to_idx = {
-            "afro": 0,
-            "braids_dreads": 1,
-            "curly": 2,
-            "men": 3,
-            "staright": 4,
-            "wavy": 5
-        }
-        
         self.img_data : list[tuple[str, int]] = []
         self.img_dir = img_dir
         self.split = split
@@ -127,7 +126,7 @@ class HairTypeDataset(Dataset):
                 if valid_list is not None and rel_pth not in valid_list:
                     continue
                 
-                self.img_data.append((img_pth, self.class_to_idx[folder]))
+                self.img_data.append((img_pth, CLASSES[folder]))
 
     def __len__(self):
         return len(self.img_data)

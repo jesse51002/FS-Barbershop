@@ -1,3 +1,4 @@
+import typing
 import torch
 from torch import nn
 from torchvision.io import read_image, ImageReadMode
@@ -437,7 +438,7 @@ class Alignment(nn.Module):
             results: dict, lock: Lock,
             cur_seg: Model, cur_net: Model, 
             quality_clip: Model, hair_classifier: Model,
-            cur_loss_builder: AlignLossBuilder, cur_device
+            cur_loss_builder: AlignLossBuilder, cur_device: typing.Any
         ):
             torch.cuda.set_device(cur_net.device)
             
@@ -496,7 +497,8 @@ class Alignment(nn.Module):
         ##############################################
         def gpu_1_inference(
             results: dict, lock: Lock, cur_seg: Model,
-            cur_net: Model, cur_loss_builder: AlignLossBuilder, cur_device):
+            cur_net: Model, cur_loss_builder: AlignLossBuilder,
+            cur_device: typing.Any):
             torch.cuda.set_device(cur_net.device)
             
             cur_latent_2 = latent_2.to(cur_device)
