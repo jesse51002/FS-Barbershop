@@ -439,7 +439,7 @@ class Generator(nn.Module):
                     blur_kernel=blur_kernel,
                 )
             )
-
+        
             self.convs.append(
                 StyledConv(
                     out_channel, out_channel, 3, style_dim, blur_kernel=blur_kernel

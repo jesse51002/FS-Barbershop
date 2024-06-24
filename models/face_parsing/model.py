@@ -234,7 +234,7 @@ class FeatureFusionModule(nn.Module):
         return wd_params, nowd_params
 
 
-class BiSeNet(Model, nn.Module):
+class BiSeNet(nn.Module, Model):
     def __init__(self, n_classes, *args, **kwargs):
         super(BiSeNet, self).__init__()
         self.name = "BiSeNet"

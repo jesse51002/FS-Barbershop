@@ -61,14 +61,14 @@ class Embedding(nn.Module):
         }
         latent = []
         if (self.opts.tile_latent):
-            tmp = self.net.latent_avg.clone().detach().to(self.opts.device[0])
+            tmp = self.net.latent_avg.clone().detach().to(self.net.device)
             tmp.requires_grad = True
             for i in range(self.net.layer_num):
                 latent.append(tmp)
             optimizer_W = opt_dict[self.opts.opt_name]([tmp], lr=self.opts.learning_rate)
         else:
             for i in range(self.net.layer_num):
-                tmp = self.net.latent_avg.clone().detach().to(self.opts.device[0])
+                tmp = self.net.latent_avg.clone().detach().to(self.net.device)
                 tmp.requires_grad = True
                 latent.append(tmp)
             optimizer_W = opt_dict[self.opts.opt_name](latent, lr=self.opts.learning_rate)
@@ -112,7 +112,30 @@ class Embedding(nn.Module):
 
         return optimizer_FS, latent_F, latent_S
 
-    def setup_dataloader(self, image_path: str=None) -> None:
+    def setup_XL_optimizer(self):
+        """
+        Sets up the optimizer for the FS model.
+
+        Returns:
+            optimizer_FS (torch.optim.Optimizer): The optimizer for the XL model.
+            latent_XL (torch.Tensor): The latent
+        """
+
+        latent_XL = self.net.default_latent.detach().clone().to(self.net.device)
+        latent_XL.requires_grad = True
+        
+        opt_dict = {
+            'sgd': torch.optim.SGD,
+            'adam': torch.optim.Adam,
+            'sgdm': partial(torch.optim.SGD, momentum=0.9),
+            'adamax': torch.optim.Adamax
+        }
+
+        optimizer_XL = opt_dict[self.opts.opt_name]([latent_XL], lr=self.opts.learning_rate)
+
+        return optimizer_XL, latent_XL
+        
+    def setup_dataloader(self, image_path: str = None) -> None:
         """
         Sets up the dataloader for the current model.
 
@@ -164,7 +187,7 @@ class Embedding(nn.Module):
             return
             
         self.setup_dataloader(image_path=image_path)
-        device = self.opts.device[0]
+        device = self.net.device
         ibar = tqdm(self.dataloader, desc='Images', disable=self.opts.disable_progress_bar)
         for ref_im_H, ref_im_L, ref_name in ibar:
             optimizer_W, latent = self.setup_W_optimizer()
@@ -189,10 +212,10 @@ class Embedding(nn.Module):
                     pbar.set_description('Embedding: Loss: {:.3f}, L2 loss: {:.3f}, Perceptual loss: {:.3f}, P-norm loss: {:.3f}'
                                          .format(loss, loss_dic['l2'], loss_dic['percep'], loss_dic['p-norm']))
 
-                if self.opts.save_intermediate and step % self.opts.save_interval== 0:
-                    self.save_W_intermediate_results(ref_name, gen_im, latent_in, step)
+                if self.opts.save_intermediate and step % self.opts.save_interval == 0:
+                    self.save_intermediate_results(ref_name, gen_im, latent_in, step, "W+")
 
-            self.save_W_results(ref_name, gen_im, latent_in)
+            self.save_results(ref_name, gen_im, latent_in, "W+")
 
     def invert_images_in_FS(self, image_path: list[str]) -> None:
         """
@@ -229,7 +252,7 @@ class Embedding(nn.Module):
         
         self.setup_dataloader(image_path=image_path)
         output_dir = self.opts.output_dir
-        device = self.opts.device[0]
+        device = self.net.device
         ibar = tqdm(self.dataloader, desc='Images', disable=self.opts.disable_progress_bar)
         for ref_im_H, ref_im_L, ref_name in ibar:
 
@@ -263,7 +286,73 @@ class Embedding(nn.Module):
 
             self.save_FS_results(ref_name, gen_im, latent_in, latent_F)
 
-    def cal_loss(self, im_dict: dict, latent_in: torch.Tensor, latent_F: torch.Tensor, F_init: torch.Tensor):
+    def invert_images_in_XL(self, image_path: list[str]) -> None:
+        """
+        Inverts images in the StyleganXL latent space.
+
+        Args:
+            image_path (list[str]): A list of paths to the images to be inverted.
+
+        Returns:
+            None
+            
+        Description:
+            This function inverts images in the XL parameter of the embedding model.
+            Saves the inverted images to the 'XL' folder in the output directory.
+        """
+        
+        image_path = image_path.copy()
+        # Causes images that already have saved data to be ignored
+        cur_idx = 0
+        while cur_idx < len(image_path):
+            base = os.path.basename(image_path[cur_idx]).split(".")[0]
+            
+            output_dir = os.path.join(self.opts.output_dir, 'XL')
+            latent_path = os.path.join(output_dir, f'{base}.npy')
+            dis_image_path = os.path.join(output_dir, f'{base}.png')
+            
+            if os.path.isfile(latent_path) and os.path.isfile(dis_image_path):
+                image_path.pop(cur_idx)
+            else:
+                cur_idx += 1
+                
+        if len(image_path) == 0:
+            return
+            
+        self.setup_dataloader(image_path=image_path)
+        device = self.net.device
+        ibar = tqdm(self.dataloader, desc='Images', disable=self.opts.disable_progress_bar)
+        for ref_im_H, ref_im_L, ref_name in ibar:
+            optimizer_XL, latent_in = self.setup_XL_optimizer()
+            pbar = tqdm(range(self.opts.W_steps), desc='Embedding', leave=False, disable=self.opts.disable_progress_bar)
+            for step in pbar:
+                optimizer_XL.zero_grad()
+
+                gen_im = self.net.inference(latent_in)
+                im_dict = {
+                    'ref_im_H': ref_im_H.to(device),
+                    'ref_im_L': ref_im_L.to(device),
+                    'gen_im_H': gen_im,
+                    'gen_im_L': self.downsample(gen_im)
+                }
+
+                loss, loss_dic = self.cal_loss(im_dict, latent_in)
+                loss.backward()
+                optimizer_XL.step()
+
+                if self.opts.verbose:
+                    pbar.set_description('Embedding: Loss: {:.3f}, L2 loss: {:.3f}, Perceptual loss: {:.3f}, P-norm loss: {:.3f}'
+                                         .format(loss, loss_dic['l2'], loss_dic['percep'], loss_dic['p-norm']))
+                
+                if self.opts.save_intermediate and step % self.opts.save_interval == 0:
+                    self.save_intermediate_results(ref_name, gen_im, latent_in, step, "XL")
+                
+            self.save_results(ref_name, gen_im, latent_in, "XL")
+        
+    def cal_loss(
+        self, im_dict: dict, latent_in: torch.Tensor,
+        latent_F: torch.Tensor = None, F_init: torch.Tensor = None
+    ):
         """
         Calculates the loss for the given image dictionary and latent inputs.
 
@@ -278,9 +367,10 @@ class Embedding(nn.Module):
         """
         
         loss, loss_dic = self.loss_builder(**im_dict)
-        p_norm_loss = self.net.cal_p_norm_loss(latent_in)
-        loss_dic['p-norm'] = p_norm_loss
-        loss += p_norm_loss
+        if self.opts.model == "StyleGan2":
+            p_norm_loss = self.net.cal_p_norm_loss(latent_in)
+            loss_dic['p-norm'] = p_norm_loss
+            loss += p_norm_loss
 
         if latent_F is not None and F_init is not None:
             l_F = self.net.cal_l_F(latent_F, F_init)
@@ -289,7 +379,7 @@ class Embedding(nn.Module):
 
         return loss, loss_dic
 
-    def save_W_results(self, ref_name, gen_im: torch.Tensor, latent_in: torch.Tensor)  -> None:
+    def save_results(self, ref_name, gen_im: torch.Tensor, latent_in: torch.Tensor, folder_name: str) -> None:
         """
         Save the generated image and latent tensor to the output directory.
         Args:
@@ -306,7 +396,7 @@ class Embedding(nn.Module):
         save_im = toPIL(((gen_im[0] + 1) / 2).detach().cpu().clamp(0, 1))
         save_latent = latent_in.detach().cpu().numpy()
 
-        output_dir = os.path.join(self.opts.output_dir, 'W+')
+        output_dir = os.path.join(self.opts.output_dir, folder_name)
         os.makedirs(output_dir, exist_ok=True)
 
         latent_path = os.path.join(output_dir, f'{ref_name[0]}.npy')
@@ -315,7 +405,7 @@ class Embedding(nn.Module):
         save_im.save(image_path)
         np.save(latent_path, save_latent)
 
-    def save_W_intermediate_results(self, ref_name, gen_im: torch.Tensor, latent_in: torch.Tensor, step: int) -> None:
+    def save_intermediate_results(self, ref_name, gen_im: torch.Tensor, latent_in: torch.Tensor, step: int, folder_name: str) -> None:
         """
         Save the intermediate results of the W parameter of the embedding model.
 
@@ -337,7 +427,7 @@ class Embedding(nn.Module):
         save_im = toPIL(((gen_im[0] + 1) / 2).detach().cpu().clamp(0, 1))
         save_latent = latent_in.detach().cpu().numpy()
 
-        intermediate_folder = os.path.join(self.opts.output_dir, 'W+', ref_name[0])
+        intermediate_folder = os.path.join(self.opts.output_dir, folder_name, ref_name[0])
         os.makedirs(intermediate_folder, exist_ok=True)
 
         latent_path = os.path.join(intermediate_folder, f'{ref_name[0]}_{step:04}.npy')

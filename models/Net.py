@@ -10,7 +10,7 @@ import os
 from utils.model_utils import download_weight
 from models.ModelBase import Model
 
-class Net(Model, nn.Module):
+class Net(nn.Module, Model):
     def __init__(self, opts: dict, device="cuda"):
         super(Net, self).__init__()
         self.name = "Stylegan2"
@@ -21,15 +21,8 @@ class Net(Model, nn.Module):
         self.load_weights()
         self.load_PCA_model()
 
-    def inference(self, latent_in, input_is_latent=True,
-                  return_latents=False,start_layer=0, end_layer=8,
-                  layer_in=None):
-        self.generator(
-            [latent_in], input_is_latent=input_is_latent,
-            return_latents=return_latents,
-            start_layer=start_layer, end_layer=end_layer,
-            layer_in=layer_in
-            )
+    def inference(self, latent_in, **kwargs):
+        return self.generator(latent_in, **kwargs)
         
     def load_weights(self):
         if not os.path.exists(self.opts.ckpt):

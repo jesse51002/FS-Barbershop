@@ -18,6 +18,10 @@ def create_parser():
     parser.add_argument('--sign', type=str, default='realistic', help='realistic or fidelity results')
     parser.add_argument('--smooth', type=int, default=5, help='dilation and erosion parameter')
     parser.add_argument('--disable_progress_bar', action='store_true')
+    parser.add_argument("--model", type=str, default="StyleGan2", help="Options [StyleGan2, StyleGanXL]")
+    
+    parser.add_argument("--clip_quality", action='store_true')
+    parser.add_argument("--clip_quality_iterations", type=int, default=20, help="The amount of iterations at the end that clip will be used to increase quality")
 
     # StyleGAN2 setting
     parser.add_argument('--size', type=int, default=1024)
@@ -53,7 +57,8 @@ def create_parser():
     # Alignment loss options
     parser.add_argument('--ce_lambda', type=float, default=1.0, help='cross entropy loss multiplier factor')
     parser.add_argument('--style_lambda', type=float, default=40000, help='style loss multiplier factor')
-    parser.add_argument('--align_color_lambda', type=float, default=0.005, help='hair color loss lambda to fix hair color')
+    parser.add_argument('--align_color_lambda', type=float, default=0.1, help='hair color loss lambda to fix hair color')
+    parser.add_argument('--quality_lambda', type=float, default=0.1, help='hair color loss lambda to fix hair color')
     parser.add_argument('--body_alternate_number', type=int, default=3, help='')
     parser.add_argument('--align_steps1', type=int, default=140, help='')
     parser.add_argument('--align_steps2', type=int, default=100, help='')

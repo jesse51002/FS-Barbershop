@@ -27,7 +27,12 @@ COLOR_MATCH_QUARTILE = 0.75
 
 class Alignment(nn.Module):
 
-    def __init__(self, opts: dict, net0: Model=None, net1: Model=None, seg0: Model=None, seg1: Model=None):
+    def __init__(
+        self, opts: dict,
+        net0: Model = None, net1: Model = None,
+        seg0: Model = None, seg1: Model = None,
+        quality_clip: Model = None
+    ):
         """
         Initializes an instance of the Alignment class.
         Args:
@@ -59,6 +64,8 @@ class Alignment(nn.Module):
         if self.opts.is_multi_gpu:
             self.seg1.user_seg_std = seg_std.to(self.opts.device[1])
             self.seg1.user_seg_mean = seg_mean.to(self.opts.device[1])
+
+        self.quality_clip = quality_clip
 
         self.load_downsampling()
         self.setup_align_loss_builder()
@@ -463,19 +470,25 @@ class Alignment(nn.Module):
         latent_W_path_2 = os.path.join(output_dir, 'W+', f'{im_name_2}.npy')
 
         def gpu_0_inference(
-            results: dict, lock: Lock, cur_seg: Model,
-            cur_net: Model, cur_loss_builder, cur_device):
+            results: dict, lock: Lock,
+            cur_seg: Model, cur_net: Model, quality_clip: Model,
+            cur_loss_builder, cur_device
+        ):
             torch.cuda.set_device(cur_net.device)
             
             optimizer_align, latent_align_1 = self.setup_align_optimizer(cur_net, latent_W_path_1, device=cur_device)
 
             cur_target_mask = target_mask.to(cur_device)
+
+            quality_target_idx = None
+            if quality_clip is not None:
+                quality_target_idx = torch.tensor(0, dtype=cur_target_mask.dtype).to(cur_net.device)
             
             pbar = tqdm(range(self.opts.align_steps1), desc='Align Step 1', leave=False, disable=self.opts.disable_progress_bar)
             for step in pbar:
                 optimizer_align.zero_grad()
                 latent_in = torch.cat([latent_align_1[:, :6, :], latent_1[:, 6:, :]], dim=1)
-                down_seg, _ = self.create_down_seg(cur_seg, cur_net, latent_in)
+                down_seg, gen_im = self.create_down_seg(cur_seg, cur_net, latent_in)
                 
                 loss_dict = {}
                 
@@ -483,8 +496,15 @@ class Alignment(nn.Module):
                 ce_loss = cur_loss_builder.cross_entropy_loss(down_seg, cur_target_mask)
                 loss_dict["ce_loss"] = ce_loss.item()
                 loss = ce_loss
-                # print(loss_dict)
-                
+
+                if quality_clip is not None and step >= self.opts.align_steps1 - self.opts.clip_quality_iterations:
+                    gen_im_0_1 = (gen_im + 1) / 2
+                    model_in = quality_clip.torch_prepreocess(gen_im_0_1)
+                    output = quality_clip.inference(model_in)[0]
+                    quality_loss = self.loss_builder0.quality_cross_entropy_loss(output, quality_target_idx)
+                    loss += quality_loss
+                    loss_dict["quality_loss"] = quality_loss.item()
+                            
                 loss.backward()
                 optimizer_align.step()
     
@@ -542,7 +562,7 @@ class Alignment(nn.Module):
     
                 loss_dict["style_loss"] = style_loss.item()
                 loss += style_loss
-    
+                
                 loss.backward()
                 optimizer_align.step()
 
@@ -561,7 +581,7 @@ class Alignment(nn.Module):
             print("Multi-threading aligment")
             gpu0_thread = Thread(
                 target=gpu_0_inference,
-                args=(results, threading_lock, self.seg0, self.net0, self.loss_builder0, self.opts.device[0])
+                args=(results, threading_lock, self.seg0, self.net0, self.quality_clip, self.loss_builder0, self.opts.device[0])
             )
             gpu1_thread = Thread(
                 target=gpu_1_inference,
@@ -574,7 +594,7 @@ class Alignment(nn.Module):
             gpu1_thread.join()
         else:
             print("Single threading aligment")
-            gpu_0_inference(results, threading_lock, self.seg0, self.net0, self.loss_builder0, cur_device=self.opts.device[0])
+            gpu_0_inference(results, threading_lock, self.seg0, self.net0, self.quality_clip, self.loss_builder0, cur_device=self.opts.device[0])
             gpu_1_inference(results, threading_lock, self.seg0, self.net0, self.loss_builder0, cur_device=self.opts.device[0])
             
         # Loads results
@@ -589,7 +609,7 @@ class Alignment(nn.Module):
 
         free_mask_down_32 = F.interpolate(free_mask.float(), size=(32, 32), mode='bicubic')[0]
         interpolation_low = 1 - free_mask_down_32
-
+        
         latent_F_mixed = intermediate_align + interpolation_low.unsqueeze(0) * (
                 latent_F_1 - intermediate_align)
 
