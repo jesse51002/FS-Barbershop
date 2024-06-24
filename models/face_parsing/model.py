@@ -245,6 +245,9 @@ class BiSeNet(nn.Module, Model):
         self.conv_out16 = BiSeNetOutput(128, 64, n_classes)
         self.conv_out32 = BiSeNetOutput(128, 64, n_classes)
         self.init_weight()
+        
+        for param in self.parameters():
+            param.requires_grad = False
 
     def inference(self, x):
         return self.forward(x)
