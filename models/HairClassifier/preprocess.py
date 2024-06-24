@@ -117,36 +117,8 @@ def preprocess_dataset():
                 file_name = os.path.splitext(os.path.basename(cur_imgs[j]))[0] + ".png"
                 
                 target_pth = os.path.join(hair_only_folder, hair_type, file_name)
-    
-                left, right, bottom, top = calculate_hair_box(hair_bool_array[j])
-    
-                original_bounded_hair = hair_only_ouputs[j, bottom:top, left:right]
                 
-                # Turns the bounds into a box
-                vertical_size = top - bottom
-                horizontal_size = right - left
-    
-                l_bounds, r_bounds, b_bounds, t_bounds = 0, 0, 0, 0
-                
-                if vertical_size > horizontal_size:
-                    diff = vertical_size - horizontal_size
-                    l_bounds = math.floor(diff / 2)
-                    r_bounds = math.ceil(diff / 2)
-                elif vertical_size < horizontal_size:
-                    diff = horizontal_size - vertical_size
-                    b_bounds = math.floor(diff / 2)
-                    t_bounds = math.ceil(diff / 2)
-    
-                # Adds padding to sqaure the image
-                square_hair_img = cv2.copyMakeBorder(
-                    original_bounded_hair,
-                    b_bounds,  # bottom
-                    t_bounds,  # top
-                    l_bounds,  # left
-                    r_bounds,  # right
-                    cv2.BORDER_CONSTANT,  # borderType
-                    value=[BACKGROUND_COLOR] * 3
-                )
+                square_hair_img = crop_img_from_mask(hair_only_ouputs[j], hair_bool_array[j])
 
                 try:
                     img = Image.fromarray(square_hair_img)
@@ -155,6 +127,38 @@ def preprocess_dataset():
                 except Exception as e:
                     print(e)
 
+def crop_img_from_mask(img, mask):
+    left, right, bottom, top = calculate_hair_box(mask)
+    
+    original_bounded_hair = img[bottom:top, left:right]
+                
+    # Turns the bounds into a box
+    vertical_size = top - bottom
+    horizontal_size = right - left
+    
+    l_bounds, r_bounds, b_bounds, t_bounds = 0, 0, 0, 0
+                
+    if vertical_size > horizontal_size:
+        diff = vertical_size - horizontal_size
+        l_bounds = math.floor(diff / 2)
+        r_bounds = math.ceil(diff / 2)
+    elif vertical_size < horizontal_size:
+        diff = horizontal_size - vertical_size
+        b_bounds = math.floor(diff / 2)
+        t_bounds = math.ceil(diff / 2)
+    
+    # Adds padding to sqaure the image
+    square_hair_img = cv2.copyMakeBorder(
+        original_bounded_hair,
+        b_bounds,  # bottom
+        t_bounds,  # top
+        l_bounds,  # left
+        r_bounds,  # right
+        cv2.BORDER_CONSTANT,  # borderType
+        value=[BACKGROUND_COLOR] * 3
+    )
+    
+    return square_hair_img
 
 def calculate_hair_box(mask):
     top, bottom, right, left = 0, 0, 0, 0

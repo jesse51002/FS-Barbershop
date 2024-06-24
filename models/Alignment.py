@@ -31,7 +31,8 @@ class Alignment(nn.Module):
         self, opts: dict,
         net0: Model = None, net1: Model = None,
         seg0: Model = None, seg1: Model = None,
-        quality_clip: Model = None
+        quality_clip: Model = None,
+        hair_classifier: Model = None
     ):
         """
         Initializes an instance of the Alignment class.
@@ -66,6 +67,7 @@ class Alignment(nn.Module):
             self.seg1.user_seg_mean = seg_mean.to(self.opts.device[1])
 
         self.quality_clip = quality_clip
+        self.hair_classifier = hair_classifier
 
         self.load_downsampling()
         self.setup_align_loss_builder()
@@ -154,17 +156,17 @@ class Alignment(nn.Module):
 
         # Adds hair between neck and hair
         # This is for situations where the hair doesnt connect to the neck because the previous nech was to wide
-        right, left, bottom, top = self.get_hair_box(target_mask)
+        left, right, bottom, top = self.get_hair_box(target_mask)
         
         # Crops the box inwards to not mess up the curve on the outer hair curve
         top_crop_perc = 0.2
         side_crop_perc = 0.5
 
         top_move_amount = int(top_crop_perc * (top - bottom))
-        side_move_amount = int(side_crop_perc / 2 * (left - right))
+        side_move_amount = int(side_crop_perc / 2 * (right - left))
 
-        right += side_move_amount
-        left -= side_move_amount
+        left += side_move_amount
+        right -= side_move_amount
         bottom = min(bottom + 70, top_move_amount + bottom)
 
         binary_box_mask = torch.zeros_like(target_mask)
@@ -279,44 +281,6 @@ class Alignment(nn.Module):
                     hair_mask2[:, hair_top_points[current_x]: hair_move_point, current_x] = 1
                 else:
                     hair_mask2[:, hair_move_point: hair_top_points[current_x], current_x] = 0
-                
-        """
-        # Smooth the border boundary between jaw stop point
-        smooth_length = 30
-
-        end_point_y = img1_left_points[0, 1] + 1
-        start_point_y = max(0, end_point_y - smooth_length)
-        
-        left_smooth_point_x = img_center - torch.argmax(torch.flip(hair_mask2[0, start_point_y: end_point_y, :img_center], dims=[1]), axis=1)
-        right_smooth_point_x = img_center + torch.argmax(hair_mask2[0, start_point_y: end_point_y, img_center:], axis=1)
-
-        do_left = left_smooth_point_x[0] != 0 and left_smooth_point_x[0] != img_center * 2 and left_smooth_point_x[-1] != 0 and left_smooth_point_x[-1] != img_center * 2
-        do_right = right_smooth_point_x[0] != 0 and right_smooth_point_x[0] != img_center * 2 and right_smooth_point_x[-1] != 0 and right_smooth_point_x[-1] != img_center * 2
-
-        left_mult_factor = (left_smooth_point_x[-1] - left_smooth_point_x[0]) / (end_point_y - start_point_y)
-        right_mult_factor = (right_smooth_point_x[-1] - right_smooth_point_x[0]) / (end_point_y - start_point_y)
-        
-        for i in range(end_point_y - start_point_y):
-            current_y = start_point_y + i
-            if do_left:
-                hair_move_point = int(left_mult_factor * i + left_smooth_point_x[0])
-                add_amount = hair_move_point - left_smooth_point_x[i]
-                
-                if add_amount > 0:
-                    hair_mask2[:, current_y, hair_left_points[current_y]: hair_left_points[current_y] + add_amount] = 1
-                else:
-                    hair_mask2[:, current_y, hair_left_points[current_y] + add_amount: hair_left_points[current_y]] = 0
-
-            if do_right:
-                hair_move_point = int(right_mult_factor * i + right_smooth_point_x[0])
-                add_amount = right_smooth_point_x[i] - hair_move_point
-
-                add_amount = hair_right_points[current_y] - hair_move_point
-                if add_amount > 0:
-                    hair_mask2[:, current_y, hair_right_points[current_y] - add_amount: hair_right_points[current_y]] = 1
-                else:
-                    hair_mask2[:, current_y, hair_right_points[current_y]: hair_right_points[current_y] - add_amount] = 0
-        """
         
         return hair_mask2
 
@@ -425,7 +389,7 @@ class Alignment(nn.Module):
         return free_mask_D, free_mask_E
 
     def get_hair_box(self, mask: torch.Tensor) -> tuple[int, int, int, int]:
-        right, left, bottom, top = 0, 0, 0, 0
+        left, right, bottom, top = 0, 0, 0, 0
         # Gets positions where the data is not 0
         contains_pos = torch.argwhere(mask == CLASSES["hair"])
         
@@ -436,14 +400,14 @@ class Alignment(nn.Module):
         # min index where element is not zero
         mins = torch.min(contains_pos, axis=0).values
         bottom = mins[1]
-        right = mins[2]
+        left = mins[2]
         
         # Max index where element is not zero
         maxs = torch.max(contains_pos, axis=0).values
         top = maxs[1]
-        left = maxs[2]
+        right = maxs[2]
 
-        return right, left, bottom, top
+        return left, right, bottom, top
     
     def align_images(self, img_path1: str, img_path2: str, sign='realistic', align_more_region: bool=False, smooth: int=5,
                      save_intermediate: bool=True) -> None:
@@ -471,8 +435,9 @@ class Alignment(nn.Module):
 
         def gpu_0_inference(
             results: dict, lock: Lock,
-            cur_seg: Model, cur_net: Model, quality_clip: Model,
-            cur_loss_builder, cur_device
+            cur_seg: Model, cur_net: Model, 
+            quality_clip: Model, hair_classifier: Model,
+            cur_loss_builder: AlignLossBuilder, cur_device
         ):
             torch.cuda.set_device(cur_net.device)
             
@@ -483,6 +448,10 @@ class Alignment(nn.Module):
             quality_target_idx = None
             if quality_clip is not None:
                 quality_target_idx = torch.tensor(0, dtype=cur_target_mask.dtype).to(cur_net.device)
+            
+            hair_class_idx = None
+            if hair_classifier is not None:
+                hair_class_idx = torch.tensor(self.opts.hair_class, dtype=cur_target_mask.dtype).to(cur_net.device)
             
             pbar = tqdm(range(self.opts.align_steps1), desc='Align Step 1', leave=False, disable=self.opts.disable_progress_bar)
             for step in pbar:
@@ -497,14 +466,23 @@ class Alignment(nn.Module):
                 loss_dict["ce_loss"] = ce_loss.item()
                 loss = ce_loss
 
-                if quality_clip is not None and step >= self.opts.align_steps1 - self.opts.clip_quality_iterations:
-                    gen_im_0_1 = (gen_im + 1) / 2
+                gen_im_0_1 = (gen_im + 1) / 2
+                
+                if quality_target_idx is not None and step >= self.opts.align_steps1 - self.opts.clip_quality_iterations:
                     model_in = quality_clip.torch_prepreocess(gen_im_0_1)
                     output = quality_clip.inference(model_in)[0]
-                    quality_loss = self.loss_builder0.quality_cross_entropy_loss(output, quality_target_idx)
+                    quality_loss = cur_loss_builder.quality_cross_entropy_loss(output, quality_target_idx)
                     loss += quality_loss
                     loss_dict["quality_loss"] = quality_loss.item()
-                            
+                    
+                if hair_class_idx is not None and step >= self.opts.align_steps1 - self.opts.hair_classifier_iterations:
+                    seg = down_seg.argmax(dim=1)
+                    
+                    output = hair_classifier.inference(gen_im_0_1, seg)[0]
+                    hair_loss = cur_loss_builder.hair_cross_entropy_loss(output, hair_class_idx)
+                    loss += hair_loss
+                    loss_dict["hair_loss"] = hair_loss.item()
+
                 loss.backward()
                 optimizer_align.step()
     
@@ -518,7 +496,7 @@ class Alignment(nn.Module):
         ##############################################
         def gpu_1_inference(
             results: dict, lock: Lock, cur_seg: Model,
-            cur_net: Model, cur_loss_builder, cur_device):
+            cur_net: Model, cur_loss_builder: AlignLossBuilder, cur_device):
             torch.cuda.set_device(cur_net.device)
             
             cur_latent_2 = latent_2.to(cur_device)
@@ -581,7 +559,7 @@ class Alignment(nn.Module):
             print("Multi-threading aligment")
             gpu0_thread = Thread(
                 target=gpu_0_inference,
-                args=(results, threading_lock, self.seg0, self.net0, self.quality_clip, self.loss_builder0, self.opts.device[0])
+                args=(results, threading_lock, self.seg0, self.net0, self.quality_clip, self.hair_classifier, self.loss_builder0, self.opts.device[0])
             )
             gpu1_thread = Thread(
                 target=gpu_1_inference,

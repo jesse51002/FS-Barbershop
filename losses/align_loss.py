@@ -27,8 +27,12 @@ class AlignLossBuilder(torch.nn.Module):
         loss = self.opt.ce_lambda * self.cross_entropy(down_seg, target_mask)
         return loss
 
-    def quality_cross_entropy_loss(self, down_seg, target_mask):
-        loss = self.opt.quality_lambda * self.cross_entropy(down_seg, target_mask)
+    def quality_cross_entropy_loss(self, down_seg, target_idx):
+        loss = self.opt.quality_lambda * self.cross_entropy(down_seg, target_idx)
+        return loss
+    
+    def hair_cross_entropy_loss(self, down_seg, target_idx):
+        loss = self.opt.hair_type_lambda * self.cross_entropy(down_seg, target_idx)
         return loss
 
     def binary_ce_loss(self, down_seg, target_mask):

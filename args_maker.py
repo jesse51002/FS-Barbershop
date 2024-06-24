@@ -18,10 +18,12 @@ def create_parser():
     parser.add_argument('--sign', type=str, default='realistic', help='realistic or fidelity results')
     parser.add_argument('--smooth', type=int, default=5, help='dilation and erosion parameter')
     parser.add_argument('--disable_progress_bar', action='store_true')
-    parser.add_argument("--model", type=str, default="StyleGan2", help="Options [StyleGan2, StyleGanXL]")
     
     parser.add_argument("--clip_quality", action='store_true')
     parser.add_argument("--clip_quality_iterations", type=int, default=20, help="The amount of iterations at the end that clip will be used to increase quality")
+    
+    parser.add_argument("--hair_class", type=int, default=-1, help="The index of the hair type to use")
+    parser.add_argument("--hair_classifier_iterations", type=int, default=20, help="The amount of iterations to change hair texture")
 
     # StyleGAN2 setting
     parser.add_argument('--size', type=int, default=1024)
@@ -58,7 +60,8 @@ def create_parser():
     parser.add_argument('--ce_lambda', type=float, default=1.0, help='cross entropy loss multiplier factor')
     parser.add_argument('--style_lambda', type=float, default=40000, help='style loss multiplier factor')
     parser.add_argument('--align_color_lambda', type=float, default=0.1, help='hair color loss lambda to fix hair color')
-    parser.add_argument('--quality_lambda', type=float, default=0.1, help='hair color loss lambda to fix hair color')
+    parser.add_argument('--quality_lambda', type=float, default=0.1, help='quality loss lambda for clip loss')
+    parser.add_argument('--hair_type_lambda', type=float, default=0.1, help='hair type loss lambda to fix hair texture')
     parser.add_argument('--body_alternate_number', type=int, default=3, help='')
     parser.add_argument('--align_steps1', type=int, default=140, help='')
     parser.add_argument('--align_steps2', type=int, default=100, help='')

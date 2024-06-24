@@ -13,8 +13,8 @@ from models.Blending import Blending
 from models.FacerParsing import FacerModel, FacerKeypoints, FacerDetection
 from models.p3m_matting.inference import human_matt_model
 from models.Net import Net
-from models.NetXL import NetXL
 from models.QualityClip import QualityClip
+from models.HairClassifier.inference import HairClassifier
 
 
 def main(args):
@@ -55,14 +55,8 @@ def main(args):
     seg0 = create_seg(args.device[0])
     seg1 = create_seg(args.device[1]) if args.is_multi_gpu else None
 
-    if args.model == "StyleGan2":
-        net0 = Net(args, device=args.device[0])
-        net1 = Net(args, device=args.device[1]) if args.is_multi_gpu else None
-    elif args.model == "StyleGanXL":
-        net0 = NetXL(args, device=args.device[0])
-        net1 = NetXL(args, device=args.device[1]) if args.is_multi_gpu else None
-    else:
-        raise NotImplementedError(f"{args.model} is not implemented in this code base")
+    net0 = Net(args, device=args.device[0])
+    net1 = Net(args, device=args.device[1]) if args.is_multi_gpu else None
 
     quality_clip = QualityClip(device=args.device[0]) if args.clip_quality else None
         
@@ -70,10 +64,11 @@ def main(args):
     keypoint_model = FacerKeypoints(face_detector=face_detector, device=args.device[1] if args.is_multi_gpu else args.device[0])
     facer = FacerModel(face_detector=face_detector, device=args.device[1] if args.is_multi_gpu else args.device[0])
     background_remover = human_matt_model(device=args.device[1] if args.is_multi_gpu else args.device[0])
+    hair_classifier = HairClassifier(device=args.device[1] if args.is_multi_gpu else args.device[0])
 
     ii2s = Embedding(args, net=net0)
     segmentor = SegMaker(args, facer=facer, background_remover=background_remover, keypoint_model=keypoint_model)
-    align = Alignment(args, seg0=seg0, seg1=seg1, net0=net0, net1=net1, quality_clip=quality_clip)
+    align = Alignment(args, seg0=seg0, seg1=seg1, net0=net0, net1=net1, quality_clip=quality_clip, hair_classifier=hair_classifier)
     blend = Blending(args, seg=seg0, net=net0, facer=facer, background_remover=background_remover)
     print("Finished loading models")
 
@@ -84,13 +79,8 @@ def main(args):
         torch.cuda.set_device(args.device[0])
         start = time.time()
         
-        if args.model == "StyleGan2":
-            ii2s.invert_images_in_W([*im_set])
-            ii2s.invert_images_in_FS([*im_set])
-        elif args.model == "StyleGanXL":
-            ii2s.invert_images_in_XL([*im_set])
-        else:
-            raise NotImplementedError("Should not reach here, error in the code base")
+        ii2s.invert_images_in_W([*im_set])
+        ii2s.invert_images_in_FS([*im_set])
             
         print(f"Embedding took  {time.time() - start}")
     
