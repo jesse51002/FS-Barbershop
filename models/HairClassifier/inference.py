@@ -4,6 +4,7 @@ sys.path.insert(0, './models/HairClassifier/')
 import math
 
 import torch
+from torch.nn import functional as F
 
 from models.ModelBase import Model
 
@@ -11,10 +12,8 @@ from dataset import INFERENCE_TRANSFORM
 from mobilenetv3 import mobilenet_v3_large
 from train import NUM_CLASSES
 from models.face_parsing.classes import CLASSES
-from preprocess import BACKGROUND_COLOR
 
-
-
+BACKGROUND_COLOR = 255
 
 MODEL_PATH = "pretrained_models/hair_classifer_weights.pth"
 
@@ -25,13 +24,15 @@ class HairClassifier(Model):
         
         self.model = mobilenet_v3_large(num_classes=NUM_CLASSES)
         self.model.load_state_dict(torch.load(weight_pth))
-        self.model.eval()
         self.model = self.model.to(device)
+        self.model.eval()
+
+        self.device = device
         
         for param in self.model.parameters():
             param.requires_grad = False
         
-    def predict(self, image, face_parse_mask):
+    def inference(self, image, face_parse_mask):
         """
         Predicts the class of an image using a pre-trained model.
 
@@ -49,14 +50,18 @@ class HairClassifier(Model):
             This function takes an input image and a face parsing mask as input. It first crops the image using the face parsing mask using the `crop_img_from_mask` function. Then, it applies the `INFERENCE_TRANSFORM` to the cropped image. Finally, it moves the image to the device used by the pre-trained model and returns the predicted class of the image using the pre-trained model.
         """
         image = crop_img_from_mask(image, face_parse_mask)
-        image = INFERENCE_TRANSFORM(image)
-        image = image.to(self.model.device)
+        if image.shape[-1] == 0:
+            print("NO HAIR FOUND")
+            return torch.tensor([0] * 6).to(self.device)
+        image = INFERENCE_TRANSFORM(image).to(self.device).unsqueeze(0)
         return self.model(image)
 
 
 def crop_img_from_mask(img: torch.Tensor, mask: torch.Tensor) -> torch.Tensor:
     # Dont need the gradient for the mask, add uneeded extra time
-    mask = mask.squeeze().detach()
+    mask = mask.detach().unsqueeze(0).to(torch.float)
+    mask = F.interpolate(mask, size=(img.shape[-2], img.shape[-1]), mode="nearest").squeeze()
+    
     img = img.squeeze()
     
     img_mask = torch.stack([mask] * 3, dim=0)
@@ -82,7 +87,7 @@ def crop_img_from_mask(img: torch.Tensor, mask: torch.Tensor) -> torch.Tensor:
         b_bounds = math.floor(diff / 2)
         t_bounds = math.ceil(diff / 2)
     
-    square_hair_img = torch.ones((3, original_bounded_hair.shape[-2], original_bounded_hair.shape[-1])).to(img.device) * (BACKGROUND_COLOR / 255)
+    square_hair_img = torch.ones((3, max_size, max_size)).to(img.device) * (BACKGROUND_COLOR / 255)
     square_hair_img[:, b_bounds: max_size - t_bounds, l_bounds: max_size - r_bounds] = original_bounded_hair
     
     return square_hair_img
@@ -99,12 +104,12 @@ def get_hair_box(mask: torch.Tensor) -> tuple[int, int, int, int]:
         
     # min index where element is not zero
     mins = torch.min(contains_pos, axis=0).values
-    bottom = mins[1]
-    left = mins[2]
+    bottom = mins[0]
+    left = mins[1]
         
     # Max index where element is not zero
     maxs = torch.max(contains_pos, axis=0).values
-    top = maxs[1]
-    right = maxs[2]
+    top = maxs[0]
+    right = maxs[1]
 
     return left, right, bottom, top

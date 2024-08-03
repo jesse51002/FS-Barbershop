@@ -12,7 +12,7 @@ python main.py --im_path1 IMG_4302.png --im_path2 werewolf.png --im_path3 werewo
     --W_steps=300 --FS_steps=150  \
     --style_lambda 200000 --body_alternate_number 5 --align_color_lambda 0.0001 \
     --clip_quality --clip_quality_iterations 20 \
-    --hair_class 4 --hair_classifier_iterations 200
+    --hair_class 2 --hair_classifier_iterations 200 --hair_type_lambda 0.4
 
 
 # Time with no clip: 13 seconds

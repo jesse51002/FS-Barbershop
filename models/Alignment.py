@@ -436,7 +436,7 @@ class Alignment(nn.Module):
 
         def gpu_0_inference(
             results: dict, lock: Lock,
-            cur_seg: Model, cur_net: Model, 
+            cur_seg: Model, cur_net: Model,
             quality_clip: Model, hair_classifier: Model,
             cur_loss_builder: AlignLossBuilder, cur_device: typing.Any
         ):
@@ -451,8 +451,10 @@ class Alignment(nn.Module):
                 quality_target_idx = torch.tensor(0, dtype=cur_target_mask.dtype).to(cur_net.device)
             
             hair_class_idx = None
-            if hair_classifier is not None:
+            if hair_classifier is not None and self.opts.hair_class != -1:
                 hair_class_idx = torch.tensor(self.opts.hair_class, dtype=cur_target_mask.dtype).to(cur_net.device)
+
+            softmax = nn.Softmax(dim=0)
             
             pbar = tqdm(range(self.opts.align_steps1), desc='Align Step 1', leave=False, disable=self.opts.disable_progress_bar)
             for step in pbar:
@@ -479,16 +481,28 @@ class Alignment(nn.Module):
                 if hair_class_idx is not None and step >= self.opts.align_steps1 - self.opts.hair_classifier_iterations:
                     seg = down_seg.argmax(dim=1)
                     
-                    output = hair_classifier.inference(gen_im_0_1, seg)[0]
+                    output = softmax(hair_classifier.inference(gen_im_0_1, seg)[0])
                     hair_loss = cur_loss_builder.hair_cross_entropy_loss(output, hair_class_idx)
+                    print(output)
                     loss += hair_loss
                     loss_dict["hair_loss"] = hair_loss.item()
 
+                # print(loss_dict)
+                
                 loss.backward()
                 optimizer_align.step()
     
             intermediate_align, _ = cur_net.inference([latent_in], input_is_latent=True, return_latents=False,
                                                        start_layer=0, end_layer=3)
+
+            gen_im, _ = cur_net.inference([latent_in], input_is_latent=True, return_latents=False,
+                                       start_layer=0, end_layer=8)
+            
+            test_gen_0_1 = (gen_im + 1) / 2
+            test_gen_0_1 = test_gen_0_1.clamp(0, 1).squeeze().permute((1, 2, 0)) * 255
+            test_gen_0_1 = test_gen_0_1.detach().to(torch.uint8).cpu().numpy()[:, :, ::-1]
+            cv2.imwrite("idkes.png", test_gen_0_1)
+        
             intermediate_align = intermediate_align.clone().detach()
 
             with lock:
@@ -497,8 +511,9 @@ class Alignment(nn.Module):
         ##############################################
         def gpu_1_inference(
             results: dict, lock: Lock, cur_seg: Model,
-            cur_net: Model, cur_loss_builder: AlignLossBuilder,
+            cur_net: Model, hair_classifier: Model, cur_loss_builder: AlignLossBuilder,
             cur_device: typing.Any):
+            
             torch.cuda.set_device(cur_net.device)
             
             cur_latent_2 = latent_2.to(cur_device)
@@ -506,6 +521,12 @@ class Alignment(nn.Module):
             optimizer_align, latent_align_2 = self.setup_align_optimizer(cur_net, latent_W_path_2, device=cur_device)
 
             cur_target_mask = target_mask.to(cur_device)
+
+            hair_class_idx = None
+            if hair_classifier is not None and self.opts.hair_class != -1:
+                hair_class_idx = torch.tensor(self.opts.hair_class, dtype=cur_target_mask.dtype).to(cur_net.device)
+
+            softmax = nn.Softmax(dim=0)
             
             with torch.no_grad():
                 tmp_latent_in = torch.cat([latent_align_2[:, :6, :], cur_latent_2[:, 6:, :]], dim=1)
@@ -542,6 +563,17 @@ class Alignment(nn.Module):
     
                 loss_dict["style_loss"] = style_loss.item()
                 loss += style_loss
+
+                gen_im_0_1 = (gen_im + 1) / 2
+
+                if hair_class_idx is not None and step >= self.opts.align_steps1 - self.opts.hair_classifier_iterations:
+                    seg = down_seg.argmax(dim=1)
+                    
+                    output = softmax(hair_classifier.inference(gen_im_0_1, seg)[0])
+                    hair_loss = cur_loss_builder.hair_cross_entropy_loss(output, hair_class_idx)
+                    print(output)
+                    loss += hair_loss
+                    loss_dict["hair_loss"] = hair_loss.item()
                 
                 loss.backward()
                 optimizer_align.step()
@@ -565,7 +597,7 @@ class Alignment(nn.Module):
             )
             gpu1_thread = Thread(
                 target=gpu_1_inference,
-                args=(results, threading_lock, self.seg1, self.net1, self.loss_builder1, self.opts.device[1])
+                args=(results, threading_lock, self.seg1, self.net1, self.hair_classifier, self.loss_builder1, self.opts.device[1])
             )
 
             gpu1_thread.start()
@@ -574,8 +606,8 @@ class Alignment(nn.Module):
             gpu1_thread.join()
         else:
             print("Single threading aligment")
-            gpu_0_inference(results, threading_lock, self.seg0, self.net0, self.quality_clip, self.loss_builder0, cur_device=self.opts.device[0])
-            gpu_1_inference(results, threading_lock, self.seg0, self.net0, self.loss_builder0, cur_device=self.opts.device[0])
+            gpu_0_inference(results, threading_lock, self.seg0, self.net0, self.quality_clip, self.hair_classifier, self.loss_builder0, cur_device=self.opts.device[0])
+            gpu_1_inference(results, threading_lock, self.seg0, self.net0, self.hair_classifier, self.loss_builder0, cur_device=self.opts.device[0])
             
         # Loads results
         intermediate_align = results["intermediate_align"]

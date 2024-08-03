@@ -8,10 +8,10 @@ from PIL import Image
 import numpy as np
 import cv2
 
-from models.FaceDetector import output_bb
-from models.FacerParsing import FacerModel, FacerDetection, FACER_CLASSES
-from models.p3m_matting.inference import remove_background
-from models.face_parsing.inference import get_segmentation, IBUG_CLASSES
+from preprocess_models.FaceDetector import output_bb
+from preprocess_models.FacerParsing import FacerModel, FacerDetection, FACER_CLASSES
+from preprocess_models.p3m_matting.inference import remove_background
+from preprocess_models.face_parsing.inference import get_segmentation, IBUG_CLASSES
 
 
 data_folder = "./data"

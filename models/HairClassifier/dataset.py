@@ -72,6 +72,7 @@ TRANSFORM_NO_CHANGE = v2.Compose([
 
 INFERENCE_TRANSFORM = transforms.Compose([
     transforms.Resize((IMG_SIZE, IMG_SIZE), antialias=True),
+    v2.Grayscale(),
     v2.ToDtype(torch.float32, scale=False),
     v2.Normalize(mean=[MEAN], std=[STD]),
 ])
