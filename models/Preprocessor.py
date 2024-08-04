@@ -22,9 +22,13 @@ from models.ModelBase import Model
 WEIGHT_FILE_NAME = "shape_predictor_68_face_landmarks.dat"
 BATCH_SIZE = 3
 
+SIZE_FACE_MULT = 3.5
+ANGLE_FACE_MULT = 2
+
+RESOLUTION = 1024
 
 class Preprocessor(nn.Module):
-    def __init__(self, opts: dict, background_remover: Model, keypoint_model: Model):
+    def __init__(self, opts: dict, background_remover: Model, detection_model: Model):
         """
         Initializes a new instance of the Preprocessor class.
         Parameters:
@@ -36,7 +40,7 @@ class Preprocessor(nn.Module):
         super(Preprocessor, self).__init__()
         self.opts = opts
         self.background_remover = background_remover
-        self.keypoint_model = keypoint_model
+        self.detection_model = detection_model
     
     def set_opts(self, opts: dict) -> None:
         self.opts = opts
@@ -94,191 +98,143 @@ class Preprocessor(nn.Module):
             return
 
         print("Preprocessing:", imgs)
-        target_size = 2048
-        batched_input = torch.zeros((len(imgs), 3, target_size, target_size))
+        batched_input = torch.zeros((len(imgs), 3, RESOLUTION, RESOLUTION))
         
         for i, img_path in enumerate(imgs):
-            image = Image.open(img_path)
-
-            large_size = max(image.size)
-
-            # Scales down if needed
-            if large_size > target_size:
-                scale_amount = target_size / large_size
-                image = image.resize((int(scale_amount * image.size[0]), int(scale_amount * image.size[1])), PIL.Image.LANCZOS)
-
-            np_image = np.array(image.convert('RGB'))
-
-            h_diff = max(0, target_size - np_image.shape[0])
-            w_diff = max(0, target_size - np_image.shape[1])
+            image = cv2.imread(img_path)
             
-            np_image = cv2.copyMakeBorder(
-                np_image,
-                math.floor(h_diff/2),
-                math.ceil(h_diff/2),
-                math.floor(w_diff/2),
-                math.ceil(w_diff/2),
-                cv2.BORDER_CONSTANT,
-                value=[0, 0, 0])
+            np_image = self.crop_image(image)
             
-            if sum(np_image.shape[:2]) != target_size * 2:
-                np_image = cv2.resize(
+            np_image = cv2.resize(
                     np_image,
-                    (target_size, target_size),
-                    interpolation=cv2.INTER_LINEAR
+                    (RESOLUTION, RESOLUTION),
+                    interpolation=cv2.INTER_CUBIC 
                 )
             
-            torch_img = torch.tensor(np_image).permute(2, 0, 1)
+            torch_img = torch.tensor(np_image[:, :, ::-1]).permute(2, 0, 1)
             batched_input[i] = torch_img
 
-        output_imgs = np.zeros((0, 3, target_size, target_size))
-        keypoints = torch.zeros((0, 68, 2)).to(self.keypoint_model.device)
+        output_imgs = np.zeros((0, 3, RESOLUTION, RESOLUTION))
         
         for i in range(0, len(imgs), BATCH_SIZE):
             cur_batched_input = batched_input[i: min(i+BATCH_SIZE, len(imgs))]
+            
             # Gets the human matting segmentaion mask
             cur_output_imgs, _ = self.background_remover.inference(cur_batched_input, target_color=target_color)
-            # Gets the keypoints results
-            cur_keypoints = self.keypoint_model.inference(cur_batched_input)['alignment']
 
             output_imgs = np.concatenate([output_imgs, cur_output_imgs], axis=0)
-            keypoints = torch.cat([keypoints, cur_keypoints], dim=0)
 
         # Aligns face based of model outputs
         for img_i in range(len(imgs)):
-            faces = self.align_face(output_imgs[img_i], keypoints[img_i].data.cpu().numpy())
-    
-            for i, face in enumerate([faces[0]]):
-                factor = 1024//self.opts.size
-                assert self.opts.size*factor == self.opts.size
-                face_tensor = torchvision.transforms.ToTensor()(face).unsqueeze(0).cuda()
-                face_tensor_lr = face_tensor[0].cpu().detach().clamp(0, 1)
-                face = torchvision.transforms.ToPILImage()(face_tensor_lr)
-                if factor != 1:
-                    face = face.resize((self.opts.size, self.opts.size), PIL.Image.LANCZOS)
-
-                im = imgs[img_i]
-                im_stem = os.path.basename(im).split(".")[0]
+            im = imgs[img_i]
+            im_stem = os.path.basename(im).split(".")[0]
+            cv2.imwrite(os.path.join(self.opts.input_dir, im_stem + ".png"), output_imgs[img_i])
                 
-                face.save(Path(self.opts.input_dir) / (im_stem + ".png"))
-    
-    def align_face(self, img: PIL.Image, keypoints: np.ndarray):
-        """
-        Aligns the face in the given image based on the provided keypoints.
-
-        Parameters:
-            img (PIL.Image): The input image containing the face.
-            keypoints (numpy.ndarray): The keypoints representing the facial landmarks.
-
-        Returns:
-            list: A list containing the aligned face image.
-
-        Note:
-            - The function performs the following steps:
-                1. Calculates auxiliary vectors for the facial landmarks.
-                2. Chooses an oriented crop rectangle based on the facial landmarks.
-                3. Shrinks the image if necessary.
-                4. Crops the image to the chosen rectangle.
-                5. Pads the image if necessary.
-                6. Transforms the image to the desired size.
-
-        """        
+    def get_directional_scale(w, h):
+        AVERAGE_H_TO_W = 1.385
+        MAX_RATIO = 1.5
         
-        lm = keypoints
-        
-        lm_chin = lm[0: 17]  # left-right
-        lm_eyebrow_left = lm[17: 22]  # left-right
-        lm_eyebrow_right = lm[22: 27]  # left-right
-        lm_nose = lm[27: 31]  # top-down
-        lm_nostrils = lm[31: 36]  # top-down
-        lm_eye_left = lm[36: 42]   # np.expand_dims(lm[36], 0)  #  # left-clockwise
-        lm_eye_right = lm[42: 48]  # np.expand_dims(lm[45], 0)  #   # left-clockwise
-        lm_mouth_outer = lm[48: 60]  # left-clockwise
-        lm_mouth_inner = lm[60: 68]  # left-clockwise
-    
-        # Calculate auxiliary vectors.
-        eye_left = np.mean(lm_eye_left, axis=0)
-        eye_right = np.mean(lm_eye_right, axis=0)
-        eye_avg = (eye_left + eye_right) * 0.5
-        eye_to_eye = eye_right - eye_left
-        mouth_left = lm_mouth_outer[0]
-        mouth_right = lm_mouth_outer[6]
-        mouth_avg = (mouth_left + mouth_right) * 0.5
-        eye_to_mouth = mouth_avg - eye_avg
-        
-        # Choose oriented crop rectangle.
-        x = eye_to_eye - np.flipud(eye_to_mouth) * [-1, 1]
-        x /= np.hypot(*x)
-        x *= max(np.hypot(*eye_to_eye) * 2.0, np.hypot(*eye_to_mouth) * 1.8)
-        y = np.flipud(x) * [-1, 1]
-        c = eye_avg + eye_to_mouth * 0.1
-        quad = np.stack([c - x - y, c - x + y, c + x + y, c + x - y])
-        qsize = np.hypot(*x) * 2
+        ratio = h / w
 
-        img = PIL.Image.fromarray(img.transpose((1, 2, 0)).astype(np.uint8))
+        # Makes sure the box doesnt get to thin, so does calcuations on a thicker box
+        if ratio >= MAX_RATIO:
+            w = h / MAX_RATIO
+            ratio = MAX_RATIO
+
+        # Gets target size
+        target_size = int(SIZE_FACE_MULT * AVERAGE_H_TO_W * w)
+        # makes it divisible by 2
+        target_size += target_size % 2
+
+        
+        average_ratio_h = w * AVERAGE_H_TO_W
+        # Face top will be aligned to this position
+        average_ratio_y0 = int((target_size - average_ratio_h) / 2)
+
+        # Align face to the right position
+        bottom_extend = average_ratio_y0 + math.ceil(h / 2)
+        top_extend = target_size - (average_ratio_y0 + math.ceil(h / 2))
+        
+        # Craete results dictionary
+        results = {
+            "bottom": bottom_extend,
+            "top": top_extend,
+            "left": int(target_size / 2),
+            "right": int(target_size / 2)
+        }
+
+        return results
+
+
+    def crop_image(
+        self,
+        img,
+        bottom_extend=True,
+        ):
+        
+        input = torch.tensor(img[:, :, ::-1]).permute(2, 0, 1).unsqueeze(0).float().to(self.opts.device[0]) / 255
+        
+        # Detect faces
+        faces = self.detection_model.inference(input)
+        
+        print(faces)
+        exit()
+        
+        x, y, w, h = faces[0]
             
-        output_size = 1024
-        # output_size = 256
-        transform_size = 4096
-        enable_padding = True
-    
-        # Shrink.
-        shrink = int(np.floor(qsize / output_size * 0.5))
-        if shrink > 1:
-            rsize = (int(np.rint(float(img.size[0]) / shrink)), int(np.rint(float(img.size[1]) / shrink)))
-            img = img.resize(rsize, PIL.Image.ANTIALIAS)
-            quad /= shrink
-            qsize /= shrink
-    
-        # Crop.
-        border = max(int(np.rint(qsize * 0.1)), 3)
-        crop = (int(np.floor(min(quad[:, 0]))), int(np.floor(min(quad[:, 1]))), int(np.ceil(max(quad[:, 0]))),
-                int(np.ceil(max(quad[:, 1]))))
-        crop = (max(crop[0] - border, 0), max(crop[1] - border, 0), min(crop[2] + border, img.size[0]),
-                min(crop[3] + border, img.size[1]))
-        if crop[2] - crop[0] < img.size[0] or crop[3] - crop[1] < img.size[1]:
-            img = img.crop(crop)
-            quad -= crop[0:2]
-    
-        # Pad.
-        pad = (int(np.floor(min(quad[:, 0]))), int(np.floor(min(quad[:, 1]))), int(np.ceil(max(quad[:, 0]))),
-               int(np.ceil(max(quad[:, 1]))))
-        pad = (max(-pad[0] + border, 0), max(-pad[1] + border, 0), max(pad[2] - img.size[0] + border, 0),
-               max(pad[3] - img.size[1] + border, 0))
-        if enable_padding and max(pad) > border - 4:
-            pad = np.maximum(pad, int(np.rint(qsize * 0.3)))
-            img = np.pad(np.float32(img), ((pad[1], pad[3]), (pad[0], pad[2]), (0, 0)), 'reflect')
-            h, w, _ = img.shape
-            y, x, _ = np.ogrid[:h, :w, :1]
-            mask = np.maximum(1.0 - np.minimum(np.float32(x) / pad[0], np.float32(w - 1 - x) / pad[2]),
-                              1.0 - np.minimum(np.float32(y) / pad[1], np.float32(h - 1 - y) / pad[3]))
-            blur = qsize * 0.02
-            img += (scipy.ndimage.gaussian_filter(img, [blur, blur, 0]) - img) * np.clip(mask * 3.0 + 1.0, 0.0, 1.0)
-            img += (np.median(img, axis=(0, 1)) - img) * np.clip(mask, 0.0, 1.0)
-            img = PIL.Image.fromarray(np.uint8(np.clip(np.rint(img), 0, 255)), 'RGB')
-            quad += pad[:2]
-    
-        # Transform.
-        img = img.transform((transform_size, transform_size), PIL.Image.QUAD, (quad + 0.5).flatten(),
-                            PIL.Image.BILINEAR)
-        if output_size < transform_size:
-            img = img.resize((output_size, output_size), PIL.Image.LANCZOS)
-   
-        return [img]
+        mid_x, mid_y = int(x + w/2), int(y + h/2)
+            
+        directoinal_scale = self.get_directional_scale(w, h)
+            
+        bounds =  (
+            mid_x - directoinal_scale["left"], # left
+            mid_x + directoinal_scale["right"], # right
+            mid_y - directoinal_scale["bottom"], # bottom 
+            mid_y + directoinal_scale["top"] # top
+        )
+            
+        l, r, b, t = bounds 
+            
+        l_bounds, r_bounds, b_bounds, t_bounds = (
+            max(0,-1*l), 
+            max(0,r - img.shape[1]),
+            max(0,-1*b),
+            max(0,t - img.shape[0]),
+            )
+            
+        if bottom_extend and t_bounds > 0:
+            raise Exception("Bottom doesnt reach")
+                
+            
+        bounded_image = img[
+            max(0, b): min(img.shape[0], t),
+            max(0, l): min(img.shape[1], r)
+            ]
+            
+        bounded_image = cv2.copyMakeBorder(
+            bounded_image, 
+            b_bounds, # bottom
+            t_bounds, #top
+            l_bounds,  # left
+            r_bounds, # right
+            cv2.BORDER_CONSTANT, #borderType
+            value=255, # Color
+        )
+                                
+        return bounded_image
         
 
 if __name__ == "__main__":
     parser = create_parser()
     args = parser.parse_args([])
 
-    from models.FacerParsing import FacerKeypoints, FacerDetection
+    from models.FacerParsing import FacerDetection
     from models.p3m_matting.inference import human_matt_model
     
     face_detector = FacerDetection()
-    keypoint_model = FacerKeypoints(face_detector=face_detector, device=args.device[0])
     background_remover = human_matt_model(device=args.device[0])
     
-    preprocessor = Preprocessor(args, keypoint_model=keypoint_model, background_remover=background_remover)
+    preprocessor = Preprocessor(args, detection_model=face_detector, background_remover=background_remover)
     
     unprocessed_dir = "input/unprocessed"
 
