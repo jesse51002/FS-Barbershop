@@ -20,12 +20,13 @@ from args_maker import create_parser
 from models.ModelBase import Model
 
 WEIGHT_FILE_NAME = "shape_predictor_68_face_landmarks.dat"
-BATCH_SIZE = 3
+BATCH_SIZE = 1
 
 SIZE_FACE_MULT = 3.5
 ANGLE_FACE_MULT = 2
 
 RESOLUTION = 1024
+
 
 class Preprocessor(nn.Module):
     def __init__(self, opts: dict, background_remover: Model, detection_model: Model):
@@ -45,7 +46,7 @@ class Preprocessor(nn.Module):
     def set_opts(self, opts: dict) -> None:
         self.opts = opts
 
-    def preprocess_imgs(self, imgs: list[str], target_color: int=155) -> None:
+    def preprocess_imgs(self, imgs: list[str], target_color: int = 255) -> None:
         """
         Preprocesses a list of images.
         
@@ -108,29 +109,28 @@ class Preprocessor(nn.Module):
             np_image = cv2.resize(
                     np_image,
                     (RESOLUTION, RESOLUTION),
-                    interpolation=cv2.INTER_CUBIC 
+                    interpolation=cv2.INTER_CUBIC if np_image.shape[0] < RESOLUTION else cv2.INTER_AREA
                 )
             
-            torch_img = torch.tensor(np_image[:, :, ::-1]).permute(2, 0, 1)
+            torch_img = torch.tensor(np_image[:, :, ::-1].copy()).permute(2, 0, 1)
             batched_input[i] = torch_img
-
-        output_imgs = np.zeros((0, 3, RESOLUTION, RESOLUTION))
         
         for i in range(0, len(imgs), BATCH_SIZE):
             cur_batched_input = batched_input[i: min(i+BATCH_SIZE, len(imgs))]
+            cur_imgs = imgs[i: min(i+BATCH_SIZE, len(imgs))]
             
             # Gets the human matting segmentaion mask
             cur_output_imgs, _ = self.background_remover.inference(cur_batched_input, target_color=target_color)
+            cur_output_imgs = cur_output_imgs[:, ::-1].transpose((0, 2, 3, 1))
 
-            output_imgs = np.concatenate([output_imgs, cur_output_imgs], axis=0)
-
-        # Aligns face based of model outputs
-        for img_i in range(len(imgs)):
-            im = imgs[img_i]
-            im_stem = os.path.basename(im).split(".")[0]
-            cv2.imwrite(os.path.join(self.opts.input_dir, im_stem + ".png"), output_imgs[img_i])
-                
-    def get_directional_scale(w, h):
+            # Aligns face based of model outputs
+            for img_i in range(len(cur_imgs)):
+                im = cur_imgs[img_i]
+                im_stem = os.path.basename(im).split(".")[0]
+                output_pth = os.path.join(self.opts.input_dir, im_stem + ".png")
+                cv2.imwrite(output_pth, cur_output_imgs[img_i])
+                    
+    def get_directional_scale(self, w, h):
         AVERAGE_H_TO_W = 1.385
         MAX_RATIO = 1.5
         
@@ -145,7 +145,6 @@ class Preprocessor(nn.Module):
         target_size = int(SIZE_FACE_MULT * AVERAGE_H_TO_W * w)
         # makes it divisible by 2
         target_size += target_size % 2
-
         
         average_ratio_h = w * AVERAGE_H_TO_W
         # Face top will be aligned to this position
@@ -165,35 +164,28 @@ class Preprocessor(nn.Module):
 
         return results
 
-
-    def crop_image(
-        self,
-        img,
-        bottom_extend=True,
-        ):
-        
-        input = torch.tensor(img[:, :, ::-1]).permute(2, 0, 1).unsqueeze(0).float().to(self.opts.device[0]) / 255
+    def crop_image(self, img, bottom_extend=False):
+        model_input = torch.tensor(img[:, :, ::-1].copy()).permute(2, 0, 1).unsqueeze(0).float().to(self.opts.device[0]) 
         
         # Detect faces
-        faces = self.detection_model.inference(input)
-        
-        print(faces)
-        exit()
-        
-        x, y, w, h = faces[0]
+        faces = self.detection_model.inference(model_input)
+                
+        x, y, x1, y1 = faces['rects'][0]
+        w = x1 - x
+        h = y1 - y
             
         mid_x, mid_y = int(x + w/2), int(y + h/2)
             
         directoinal_scale = self.get_directional_scale(w, h)
             
-        bounds =  (
+        bounds = (
             mid_x - directoinal_scale["left"], # left
             mid_x + directoinal_scale["right"], # right
             mid_y - directoinal_scale["bottom"], # bottom 
             mid_y + directoinal_scale["top"] # top
         )
             
-        l, r, b, t = bounds 
+        l, r, b, t = bounds
             
         l_bounds, r_bounds, b_bounds, t_bounds = (
             max(0,-1*l), 
