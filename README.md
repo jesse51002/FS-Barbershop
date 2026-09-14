@@ -1,3 +1,18 @@
+# FS-Barbershop monorepo
+
+All parts of the GAN-based hairstyle try-on app in one repo.
+
+| Path | What it is | Original repo |
+|---|---|---|
+| `/` (root) | Barbershop GAN model / inference | FS-Barbershop |
+| `django_backend/` | Django API backend | FS-DjangoBackend |
+| `flutter_frontend/` | Flutter mobile app | FS-FlutterFrontend |
+| `gan_data_accepter/` | Image accept/reject tool for outsourced labelers | FS-GanDataAccepter (snapshot import) |
+| `hairstyle_scraping/` | Hairstyle image scraping pipeline | FS-HairstyleScraping |
+| `model_training/` | Model training (StyleGAN2-ADA, hair type classifier) | FS-ModelTraining |
+
+---
+
 # Barbershop: GAN-based Image Compositing using Segmentation Masks
 ![teaser](docs/assets/teaser.png)
 
