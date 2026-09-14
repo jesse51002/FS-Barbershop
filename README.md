@@ -1,10 +1,10 @@
-# FS-Barbershop monorepo
+# FusionStyles monorepo
 
 All parts of the GAN-based hairstyle try-on app in one repo.
 
 | Path | What it is | Original repo |
 |---|---|---|
-| `/` (root) | Barbershop GAN model / inference | FS-Barbershop |
+| `/` (root) | Barbershop GAN model / inference | FS-Barbershop (renamed to FusionStyles) |
 | `django_backend/` | Django API backend | FS-DjangoBackend |
 | `flutter_frontend/` | Flutter mobile app | FS-FlutterFrontend |
 | `gan_data_accepter/` | Image accept/reject tool for outsourced labelers | FS-GanDataAccepter (snapshot import) |
