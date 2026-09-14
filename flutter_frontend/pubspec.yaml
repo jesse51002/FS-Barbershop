@@ -1,0 +1,40 @@
+name: hair_style_app
+description: "A new Flutter project."
+publish_to: 'none'
+version: 1.0.0+1
+
+environment:
+  sdk: '>=3.2.3 <4.0.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+  get: ^4.6.6
+  qr_flutter: ^4.1.0
+  image_picker: ^1.0.5
+  dynamicutils: ^1.0.1
+  cupertino_icons: ^1.0.2
+  carousel_slider: ^4.2.1
+  http: ^1.1.2
+  get_storage: ^2.1.1
+  fluttertoast: ^8.2.4
+  image_cropper: ^5.0.1
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^2.0.0
+
+flutter:
+  uses-material-design: true
+
+  assets:
+    - assets/fonts/
+    - assets/images/
+
+
+  fonts:
+    - family: Montserrat-Regular
+      fonts:
+        - asset: assets/fonts/Montserrat-Regular.ttf
