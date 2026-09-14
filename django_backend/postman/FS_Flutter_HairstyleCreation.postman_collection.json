@@ -1,0 +1,228 @@
+{
+	"info": {
+		"_postman_id": "88564773-9731-464f-a130-14a70fd1e956",
+		"name": "FS_Flutter_HairstyleCreation",
+		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+		"_exporter_id": "24404884"
+	},
+	"item": [
+		{
+			"name": "HairstyleRenderingStart",
+			"event": [
+				{
+					"listen": "test",
+					"script": {
+						"exec": [
+							""
+						],
+						"type": "text/javascript"
+					}
+				}
+			],
+			"protocolProfileBehavior": {
+				"followOriginalHttpMethod": false
+			},
+			"request": {
+				"auth": {
+					"type": "hawk",
+					"hawk": [
+						{
+							"key": "algorithm",
+							"value": "sha256",
+							"type": "string"
+						}
+					]
+				},
+				"method": "POST",
+				"header": [],
+				"body": {
+					"mode": "raw",
+					"raw": "{\r\n    \"eventid\": \"202312-2716-4147-2cb6bea2-b0c2-4e4c-ac26-a666cff1fa98\",\r\n    \"hairstyle_id\": 234321,\r\n    \"photo_ids\": {\r\n        \"front\": 0,\r\n        \"right\": 0,\r\n        \"left\": 0,\r\n        \"back\": 0\r\n        }\r\n}",
+					"options": {
+						"raw": {
+							"language": "json"
+						}
+					}
+				},
+				"url": {
+					"raw": "http://127.0.0.1:8000/hairstyle_creation/rendering/start/?eventid=202312-2716-4147-2cb6bea2-b0c2-4e4c-ac26-a666cff1fa98",
+					"protocol": "http",
+					"host": [
+						"127",
+						"0",
+						"0",
+						"1"
+					],
+					"port": "8000",
+					"path": [
+						"",
+						"hairstyle_creation",
+						"rendering",
+						"start",
+						""
+					],
+					"query": [
+						{
+							"key": "eventid",
+							"value": "202312-2716-4147-2cb6bea2-b0c2-4e4c-ac26-a666cff1fa98"
+						}
+					]
+				},
+				"description": "This endpoint triggers the rendering process for a hairstyle creation event. It is an HTTP GET request that includes the event ID as a query parameter. The request also contains a payload in the raw request body type, including the event ID, hairstyle ID, and photo IDs for front, right, left, and back views.\n\n### Request Parameters\n\n- `eventid`: The ID of the hairstyle creation event (query parameter)\n- `hairstyle_id`: The ID of the hairstyle\n- `photo_ids`: An object containing photo IDs/links for front, right, left, and back views\n    \n\n### Response\n\nThe response returns a status code of 200 and a JSON object with a key `success` indicating the success of the starting of the rendering process.\n\nExample:\n\n``` json\n{\n    \"success\": true\n}\n\n ```"
+			},
+			"response": []
+		},
+		{
+			"name": "HairstyleRenderingResults",
+			"request": {
+				"method": "GET",
+				"header": [],
+				"url": {
+					"raw": "http://127.0.0.1:8000/hairstyle_creation/rendering/results/?eventid=202312-2716-4147-2cb6bea2-b0c2-4e4c-ac26-a666cff1fa98",
+					"protocol": "http",
+					"host": [
+						"127",
+						"0",
+						"0",
+						"1"
+					],
+					"port": "8000",
+					"path": [
+						"",
+						"hairstyle_creation",
+						"rendering",
+						"results",
+						""
+					],
+					"query": [
+						{
+							"key": "eventid",
+							"value": "202312-2716-4147-2cb6bea2-b0c2-4e4c-ac26-a666cff1fa98"
+						}
+					]
+				},
+				"description": "## Request\n\n### HTTP Request Method\n\nGET\n\n### URL\n\n[http://127.0.0.1:8000//hairstyle_creation/rendering/results/](http://127.0.0.1:8000//hairstyle_creation/rendering/results)\n\n### Query Parameters\n\n- eventid: The unique identifier for the event.\n    \n\nThe request should include the event ID as a query parameter.\n\n## Response\n\n### Status\n\n200 OK\n\n### Data\n\nThe response will contain the following data:\n\n- inprogress (boolean): Indicates whether the custom image creation process is in progress. It will return \"InProgress=True\" if the rendering has not been completed\n- hairstyle_id (dict): Will contain the hairstyle IDs for the front, right, left, and back views when \"InProgress=False\""
+			},
+			"response": []
+		},
+		{
+			"name": "HairstyleCreationProcessStart",
+			"request": {
+				"method": "GET",
+				"header": [],
+				"url": {
+					"raw": "http://127.0.0.1:8000/hairstyle_creation/start",
+					"protocol": "http",
+					"host": [
+						"127",
+						"0",
+						"0",
+						"1"
+					],
+					"port": "8000",
+					"path": [
+						"hairstyle_creation",
+						"start"
+					]
+				},
+				"description": "This endpoint triggers the start of a hairstyle creation process. Upon successful execution, it returns an event ID in the response. This event ID will have to be passed to the server for every hairstyle creation event call.\n\n### Request\n\n- Method: GET\n- URL: `http://127.0.0.1:8000/hairstyle_creation/start`\n    \n\n### Response\n\n- Status: 200\n- { \"eventid\": \"202312-2715-5634-cb7d04d9-ec74-4e5b-8b2e-90da6a6aaaf3\" }"
+			},
+			"response": []
+		},
+		{
+			"name": "HairstylePresets",
+			"request": {
+				"method": "GET",
+				"header": [],
+				"url": {
+					"raw": "http://127.0.0.1:8000/hairstyle_creation/hairstyle_presets/?eventid=202312-2703-1444-90213d64-ee1e-4de2-ae1f-68410b80524f",
+					"protocol": "http",
+					"host": [
+						"127",
+						"0",
+						"0",
+						"1"
+					],
+					"port": "8000",
+					"path": [
+						"hairstyle_creation",
+						"hairstyle_presets",
+						""
+					],
+					"query": [
+						{
+							"key": "eventid",
+							"value": "202312-2703-1444-90213d64-ee1e-4de2-ae1f-68410b80524f"
+						}
+					]
+				},
+				"description": "### Get Hairstyle Presets\n\nThis endpoint retrieves the hairstyle presets for a specific event based on the provided event ID.\n\n**Request URL**\n\n- Method: GET\n- URL: `http://127.0.0.1:8000//hairstyle_creation/hairstyle_presets/?eventid=202312-2703-1444-90213d64-ee1e-4de2-ae1f-68410b80524f`\n    \n\n**Response**\n\n- Status: 200\n- { \"Hairstyles\":\\[\\[\"id\", \"image_link\"\\]\\] }"
+			},
+			"response": []
+		},
+		{
+			"name": "CustomHairstyleUploadStart",
+			"request": {
+				"method": "GET",
+				"header": [],
+				"url": {
+					"raw": "http://127.0.0.1:8000/hairstyle_creation/custom_img/link/?eventid=202312-2716-4147-2cb6bea2-b0c2-4e4c-ac26-a666cff1fa98",
+					"protocol": "http",
+					"host": [
+						"127",
+						"0",
+						"0",
+						"1"
+					],
+					"port": "8000",
+					"path": [
+						"hairstyle_creation",
+						"custom_img",
+						"link",
+						""
+					],
+					"query": [
+						{
+							"key": "eventid",
+							"value": "202312-2716-4147-2cb6bea2-b0c2-4e4c-ac26-a666cff1fa98"
+						}
+					]
+				},
+				"description": "This endpoint makes an HTTP GET request to retrieve a custom image link for a specific hairstyle creation event. The request should include the event ID as a query parameter.\n\nThe response will contain a status code of 200 along with a JSON object that includes the custom image link. This custom link is to be displayed on the QR code in the frontend."
+			},
+			"response": []
+		},
+		{
+			"name": "CustomHairstyleUploadResult",
+			"request": {
+				"method": "GET",
+				"header": [],
+				"url": {
+					"raw": "http://127.0.0.1:8000/hairstyle_creation/custom_img/imageid/?eventid=202312-2716-4147-2cb6bea2-b0c2-4e4c-ac26-a666cff1fa98",
+					"protocol": "http",
+					"host": [
+						"127",
+						"0",
+						"0",
+						"1"
+					],
+					"port": "8000",
+					"path": [
+						"hairstyle_creation",
+						"custom_img",
+						"imageid",
+						""
+					],
+					"query": [
+						{
+							"key": "eventid",
+							"value": "202312-2716-4147-2cb6bea2-b0c2-4e4c-ac26-a666cff1fa98"
+						}
+					]
+				},
+				"description": "# Hairstyle Creation Custom Image\n\nThis endpoint is used to retrieve the status and ID of a custom image creation process for a hairstyle.\n\n## Request\n\n### HTTP Request Method\n\nGET\n\n### URL\n\n[http://127.0.0.1:8000/hairstyle_creation/custom_img/imageid/](http://127.0.0.1:8000/hairstyle_creation/custom_img/imageid/)\n\n### Query Parameters\n\n- eventid: The unique identifier for the event.\n    \n\n## Response\n\n### Status\n\n200 OK\n\n### Data\n\nThe response will contain the following data:\n\n- inprogress (boolean): Indicates whether the custom image creation process is in progress.\n- hairstyle_id (integer): The ID of the created hairstyle."
+			},
+			"response": []
+		}
+	]
+}
