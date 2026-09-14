@@ -10,6 +10,7 @@ All parts of the GAN-based hairstyle try-on app in one repo.
 | `gan_data_accepter/` | Image accept/reject tool for outsourced labelers | FS-GanDataAccepter (snapshot import) |
 | `hairstyle_scraping/` | Hairstyle image scraping pipeline | FS-HairstyleScraping |
 | `model_training/` | Model training (StyleGAN2-ADA, hair type classifier) | FS-ModelTraining |
+| `mask_restoration/` | Mask restoration (diffusion model, FaRL segmentation) | FS-MaskRestoration |
 
 ---
 
