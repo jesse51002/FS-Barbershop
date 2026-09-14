@@ -1,0 +1,7 @@
+data/
+test/
+build/
+dist/
+export_env/
+app/
+app*.zip

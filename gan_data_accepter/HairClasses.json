@@ -1,0 +1,53 @@
+{
+    "staright": [
+        "straight"
+    ],
+    "wavy": [
+        "wavy"
+    ],
+    "curly": [
+        "curl",
+        "coil"
+    ],
+    "afro": [
+        "afro"
+    ],
+    "braids_dreads": [
+        "cornrows",
+        "braid",
+        "dread",
+        "loc",
+        "bantu knots"
+    ],
+    "men": [
+        "curtain bangs men",
+        "men black hairstyle",
+        "men brunnete hairstyle",
+        "men blonde hairstyle",
+        "men red hairstyle",
+        "men blue hairstyle",
+        "men orange hairstyle",
+        "men green hairstyle",
+        "men white hairstyle",
+        "men purple hairstyle",
+        "men yellow hairstyle",
+        "men pink hairstyle",
+        "men silver hairstyle",
+        "perm",
+        "buzz cut",
+        "Caesar Cut",
+        "Curly Mohawk",
+        "curtain bangs men",
+        "Faux Hawk",
+        "Ivy League",
+        "Block Haircut",
+        "pixie cut"
+    ],
+    "ignore": [
+        "bowl cut",
+        "bubble ponytail",
+        "chignon",
+        "curly mohawk",
+        "french twist"
+    ]
+}

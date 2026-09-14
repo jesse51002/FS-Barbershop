@@ -1,0 +1,6 @@
+pillow
+boto3
+tk
+pyorc
+pandas
+pyinstaller
