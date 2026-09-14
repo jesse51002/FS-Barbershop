@@ -1,0 +1,124 @@
+-- This is a list of hairstyles that will be queried from google
+-- "--" and "#" are comments
+
+-- texture adds {straight, wavy, curly} to the query
+-- length adds {short, medium length, long} to the query
+-- fade adds {"", low fade, mid fade, high fade} to the query
+-- half adds {"", half up half down}
+-- thick adds {thin, regular, thick}
+-- gender adds {men, women}
+-- color adds {"black", "brunnete", "blonde", "red", "blue", "orange", "green", "white", "purple", "yellow", "pink", "silver"}
+-- color_dataset adds {"afro", "curly", "wavy", "straight", "braids", "dreads", "men"}
+
+------------------------ Afros -----------------------------
+big afro | gender
+afro | gender, fade
+mini afro | gender
+Afro-textured curls | length
+afro puff | 
+
+# double afro puffs and afro space buns are the same thing
+afro space buns
+double afro puffs
+
+--------------------- Braids/Dreads/Locks -----------------------------
+two strand twists | length, gender
+dreadlocks | length, gender, fade
+butterfly locs | length, gender
+finger coils | length, gender
+Bantu knots
+rope twist | length, gender
+# thin locs
+Sisterlocks | length, gender
+# nomral locs
+box braids | length, gender
+# thick locs
+jumbo box braids | length, gender
+Goddess braids
+cornrows | gender
+curly locs | length
+
+-- Locks Styles
+Space Buns locs
+Bun locs
+Updo locs | gender
+ponytail locs | length, gender
+
+
+-- "White" braids
+Dutch braids | length
+Fishtail braids | length
+braided crown | half
+
+
+
+---------------- Women Stuff ----------------------
+-- general
+bob hairstyle | texture, length
+werewolf cut | texture, length
+Mermaid waves | length
+shag woman | texture, length
+
+--Short
+Undercut pixie cut
+Pixie cut | texture
+Curly Mohawk
+
+-- curls
+spiral curls | length
+corkscrew curls | length
+Twist out curls | length
+Balayage curls | length
+
+-- ponytails
+Bubble ponytail | length
+Low ponytail | length, texture
+High ponytail | length, texture
+
+-- bangs
+Blunt bangs | length, texture
+Side swept bangs | length, texture
+Wispy bangs | length, texture
+Baby bangs hairstyle | length, texture
+curtain bangs | texture, length
+
+-- Updos
+Messy bun | half
+Chignon | half
+top knot | half
+French twist | half
+space buns | half
+
+
+
+----------------------- Men Styles ----------------------------
+Perm | fade
+mullet | fade
+buzz cut | fade
+Korean Perm men | fade, length
+curtain bangs men | length
+bowl cut | fade
+Block Haircut
+Pompadour | fade
+men side part | fade
+Slicked Back | fade
+Faux Hawk | fade
+Ivy League | fade
+Caesar Cut | fade
+Man Bun
+men modern shag
+
+
+------------------------ Colors Dataset ------------------------------
+black hairstyle | color_dataset
+brunnete hairstyle | color_dataset
+blonde hairstyle | color_dataset
+red hairstyle | color_dataset
+blue hairstyle | color_dataset
+orange hairstyle | color_dataset
+green hairstyle | color_dataset
+white hairstyle | color_dataset
+purple hairstyle | color_dataset
+yellow hairstyle | color_dataset
+pink hairstyle | color_dataset
+silver hairstyle | color_dataset
